@@ -130,3 +130,6 @@ dmypy.json
 
 # checkpoints
 src/lab/.ipynb_checkpoints/
+
+# data
+data/maestro-v3.0.0/
