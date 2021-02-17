@@ -134,5 +134,4 @@ src/lab/.ipynb_checkpoints/
 # data
 data/maestro-v3.0.0/
 
-test.midi
-test_fast.midi
+src/lab/*.midi
