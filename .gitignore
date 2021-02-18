@@ -132,6 +132,6 @@ dmypy.json
 src/lab/.ipynb_checkpoints/
 
 # data
-data/maestro-v3.0.0/
+data/maestro-v3.0.0
 
 src/lab/*.midi
