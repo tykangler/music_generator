@@ -18,7 +18,7 @@ import collections
 
 # ## Multi-Head Relative Attention
 
-# In[14]:
+# In[2]:
 
 
 class MultiHeadRelativeAttention(keras.layers.Layer):
@@ -520,7 +520,7 @@ class Embedding(keras.layers.Layer):
 
 # ## Masking
 
-# In[15]:
+# In[10]:
 
 
 def create_padding_mask(inputs, pad_value=0):
@@ -535,7 +535,7 @@ def create_padding_mask(inputs, pad_value=0):
     return mask 
 
 
-# In[20]:
+# In[11]:
 
 
 def create_lookahead_mask(dim):
@@ -549,7 +549,7 @@ def create_lookahead_mask(dim):
     return mask
 
 
-# In[21]:
+# In[12]:
 
 
 def create_decoder_mask(inputs, pad_value=0):
@@ -568,14 +568,19 @@ def create_decoder_mask(inputs, pad_value=0):
 # 
 # Because some notes will be played at the same time, these notes must have an embedding that represents that they're played at the same time. I could give these notes the same positional encoding, but this muddies the time relationship between notes, and disregards the fact that notes will be read/generated sequentially, even in a chord. 
 # 
-# I'll **keep the standard positional encoding**, but also add another embedding: **a chord embedding**. This **chord embedding** will use the relative position mechanism created by Shaw, Uszkoreit, Vaswani as inspiration. 
+# I'll **keep the standard positional encoding**, but also add a **chord embedding**, which will use a relative position mechanism (Shaw, Uszkoreit, Vaswani).
+
+# ## Regularization 
+# Use l2 MaxNorm weight constraints, Early Stopping, Adam's Optimizer LR Schedule, Dropout
 
 # ## Model
+# 
+# Use same vocab_size for both encoder and decoder. Because the vocabulary is the same, we can share the embeddings for both encoder and decoder and train with more data. Could embeddings be trained incorrectly due to bad data? No prob not.
 
-# In[12]:
+# In[23]:
 
 
-class Transfomer(keras.Model):
+class MusicTransfomer(keras.Model):
     def __init__(self, vocab_size, embed_dim, layers, heads, 
                  key_dim, value_dim, ffnn_dim, max_relative_pos, dropout_rate, **kwargs):
         super().__init__(**kwargs)
@@ -603,66 +608,242 @@ class Transfomer(keras.Model):
             dropout_rate=dropout_rate,
             name=f"Decoder Stack ({layers} layers)"
         )
-        self.enc_embedding = Embedding(
+        self.embedding = Embedding(
             output_dim=embed_dim,
             vocab_size=vocab_size,
             dropout_rate=dropout_rate,
             name="Encoder Embedding"
-        )
-        self.dec_embedding = Embedding(
-            output_dim=embed_dim,
-            vocab_size=vocab_size,
-            dropout_rate=dropout_rate,
-            name="Decoder Embedding"
-        )
+        ) # dec_embedding can be shared due to same vocab, but on separate vocabs, use different
         self.linear = keras.layers.Dense(vocab_size, activation=keras.activations.softmax, name="Dense Layer + Softmax")
 
-    def call(self, inputs, targets, padding_mask, lookahead_mask, training):
-        enc_out = self.enc_embedding(inputs=inputs, training=training)
-        enc_out, encoder_attn_weights = self.encoders(inputs=enc_out, padding_mask=padding_mask, training=training)
-        dec_out = self.dec_embedding(inputs=targets, training=training)
+    def call(self, inputs, targets, features, padding_mask, lookahead_mask, training):
+        """
+        params:
+            inputs: tensor of shape (batch, seqlen)
+            targets: tensor of shape (batch, target_seqlen)
+            padding_mask: tensor with shape equal to or broadcastable to (batch, target_seqlen, seqlen)
+            lookahead_mask: tensor with shape equal to or broadcastable to (batch, target_seqlen, seqlen)
+            training: boolean representing whether this forward pass is part of training
+            features: tensor of shape (batch, dim) for additional features
+        returns:
+            tensor of shape (batch, target_seqlen, vocab_size)
+        """
+        enc_out = self.embedding(inputs=inputs)
+        enc_out, encoder_attn_weights = self.encoders(
+            inputs=enc_out, 
+            padding_mask=padding_mask, 
+            training=training)
+
+        dec_out = self.embedding(inputs=targets)
         dec_out, dec_weights = self.decoders(
             inputs=dec_out, 
             enc_kv=enc_out, 
-            padding_mask=padding_mask, # to mask encoder output where padding exists
+            padding_mask=padding_mask, # to mask encoder output in cross attn block where padding exists
             lookahead_mask=lookahead_mask, 
             training=training)
+
+        features = features[:, tf.newaxis, :] # (batch, 1, dim)
+        features = tf.tile(features, [1, dec_out.shape[1], 1]) # (batch, dec_out.shape[1], dim)
+        concatenated = keras.layers.concatenate([dec_out, features])
+
         result, decoder_attn_weights = self.linear(dec_out)
         return result, encoder_attn_weights, decoder_attn_weights
-    
-    def train_step(self, data):
-        inputs, targets = data # ([batch, seqlen], [batch, seqlen + 2])
+
+    def _preprocess(self, data):
+        inputs, target = data # ([batch, seqlen], [batch, seqlen + 2])
+
         # ['start', ...], [..., 'end']
-        target_input, target_output = targets[:, :-1], targets[:, 1:]
+        target_input, target_output = target[:, :-1], target[:, 1:]
 
         # dec_mask (used in self attn block) combines lookahead_mask with dec_key_mask, 
-        # while dec_pad_mask (used in cross attn block) masks enc kv padding
+        # while pad_mask (used in cross attn block) masks enc-kv padding
         pad_mask = create_padding_mask(inputs) # (batch, seqlen)
-        dec_mask = create_decoder_mask(targets) # (batch, q_seqlen, seqlen) q_seqlen == seqlen
+        dec_mask = create_decoder_mask(target_input) # (batch, q_seqlen, seqlen) q_seqlen == seqlen
         
         # mask key portions, the innermost dimension
         # q * k^T has shape (batch, heads, q_seqlen, seqlen), so mask seqlen
         # shape of mask should be (batch, q_seqlen, seqlen) masking seqlen
         pad_mask = pad_mask[:, tf.newaxis, :] # (batch, q_seqlen=1 [broadcast], seqlen)
-
+        return inputs, target_input, target_output, pad_mask, dec_mask
+    
+    def train_step(self, data):
+        inputs, target_input, target_output, pad_mask, dec_mask = self._preprocess(data)
         with tf.GradientTape() as tape:
-            y_pred = self(x, targets_input, )
+            y_pred = self(
+                inputs=inputs, 
+                target=target_input,
+                # features=??, 
+                padding_mask=pad_mask, 
+                lookahead_mask=dec_mask, 
+                training=True) # (batch, target_seqlen, vocab_size)
+            # expect sparse categorical cross entropy
+            loss = self.compiled_loss(target_output, y_pred)
+        gradients = tape.gradient(loss, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+        self.compiled_metrics.update_state(target_output, y_pred)
+        return { metric.name: metric.result() for metric in self.metrics }
+
+    def test_step(self, data):
+        inputs, target_input, target_output, pad_mask, dec_mask = self._preprocess(data)
+        y_pred = self(
+            inputs=inputs,
+            target=target_input,
+            # features=??
+            padding_mask=pad_mask,
+            lookahead_mask=dec_mask,
+            training=False
+        )
+        loss = self.compiled_loss(target_output, y_pred)
+        self.compiled_metrics.update_state(target_output, y_pred)
+        return { metric.name: metric.result() for metric in self.metrics}
 
 
-# ## Regularization 
-# Use l2 MaxNorm weight constraints, Early Stopping, Adam's Optimizer LR Schedule, Dropout
+# ## Optimizer and Learner
+# 
+# Use the Adam's optimizer with the following learning schedule. 
+# 
+# $$\large{\text{lrate} = d^{-0.5}_{\text{model}} * \text{min}(\text{step_num}^{-0.5}, \ \text{step_num} * \text{warmup_steps}^{-1.5})}$$
+
+# In[14]:
+
+
+class LearningSchedule(keras.optimizers.schedules.LearningRateSchedule):
+    def __init__(self, dim, warmup_steps=4000):
+        self.dim = dim
+        self.warmup_steps = warmup_steps
+
+    def __call__(self, step):
+        min_val = tf.minimum(1 / tf.sqrt(step), step * tf.pow(self.warmup_steps, -1.5))
+        return 1 / tf.sqrt(self.dim) * min_val
+
+
+# ## Loss Function
+# 
+# Use Sparse Categorical Cross Entropy, rather than Categorical Cross Entropy, as the sparse variant accepts labeled class inputs, not one-hot encoded class inputs. We'll have to create a custom loss function that will handle the padding that the target sequence will have. Padding tokens should be ignored when calculating loss.
+
+# In[19]:
+
+
+class PaddedSparseCategoricalCrossentropy(keras.losses.SparseCategoricalCrossentropy):
+    def __init__(
+        self, 
+        name="padded_sparse_categorical_cross_entropy", 
+        **kwargs):
+        super().__init__(name=name, **kwargs)
+
+    def _mask_metric_where_padded(raw_metric, y_true):
+        """
+        finds and masks sequence pads in y_true, and applies the masked result to raw_metric 
+        """
+        mask = tf.cast(tf.not_equal(y_true, 0), tf.float32)
+        loss_tensor_masked = mask * loss_val
+        return tf.reduce_sum(loss_tensor_masked) / tf.reduce_sum(mask) 
+
+    def call(self, y_true, y_pred):
+        # y_true = [[1, 2, 3, <end>, 0, 0], [5, 2, 5, 2, 4, <end>]]
+        # y_pred = 
+        #   [[[...], [...], [...], [...], no loss calc -> [...], [...]], 
+        #    [[...], [...], [...], [...], [...], [...]]]
+        # get loss using avg reduction, mask out padded portions, recalculate average
+        # this method is faster than boolean indexing
+
+        loss_val = super().call(y_true, y_pred)
+        return self._mask_metric_where_padded(loss_val, y_true)
+
+
+# ## Metrics
+
+# In[20]:
+
+
+class PaddedSparseTopKCategoricalAccuracy(keras.metrics.Metric):
+    def __init__(self, k=5, name="padded_sparse_top_k_categorical_accuracy", **kwargs):
+        super()._init__(name=name, **kwargs)
+        self.k = k
+        self.total = self.add_weight('total')
+        self.count = self.add_weight('count')
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        _, top_k_labels = tf.math.top_k(y_pred, self.k)
+        label_matches = tf.reduce_any(tf.equal(y_true[..., tf.newaxis], top_k_labels), axis=-1) # (batch, seqlen)
+        mask = tf.not_equal(y_true, 0) # [[True, True, True ... False, False], [...]]
+        masked_matches = tf.cast(tf.logical_and(mask, label_matches), tf.float32)
+        # implement sample weights using tf.dot
+        self.total.assign_add(tf.reduce_sum(masked_matches))
+        self.count.assign_add(tf.reduce_sum(tf.cast(mask, tf.float32)))
+
+    def result(self):
+        return self.total / self.count
+
 
 # ## Hyperparameters
-# * Specific to Model
-#     * FFNN Dimensions for both encoder and decoder
-#     * Number of Heads
-#     * Embedding Dimensions
-#     * Num Encoders + Num Decoders (set max limit)
-#     * Key dimensions
-#     * Dropout Rate
-# * General
-#     * Learning Rate
-#     * Adam's Optimizer
-#         * b1 decay
-#         * b2 decay
-#         * alpha
+
+# In[26]:
+
+
+PARAMS_MODEL = {
+    'embed_dim': 512,
+    'layers': 6,
+    'heads': 8,
+    'key_dim': 512,
+    'value_dim': 512,
+    'ffnn_dim': 256,
+    'max_relative_pos': 64, # multiples of 4-note chords
+    'dropout_rate': 0.2
+}
+
+PARAMS_OPT = {
+    'beta_1': 0.9,
+    'beta_2': 0.999,
+    'epsilon': 1e-7,
+}
+WARMUP_STEPS = 4000
+VOCAB_SIZE = 2832 # 16 waits + 32 volumes x 128 notes x 1 instrument
+
+
+# ## Callbacks
+# 
+# * Early Stopping
+# * Tensorboard
+# * Checkpoints every `n` epoch
+
+# In[21]:
+
+
+# change log_dir and checkpoint filepath at future point
+callbacks = [
+    keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, min_delta=0), # in epochs
+    keras.callbacks.TensorBoard(
+        log_dir='logs', write_graph=True, histogram_freq=50, # in epochs
+        update_freq='epoch', profile_batch=2, embeddings_freq=50), # in epochs
+    keras.callbacks.ModelCheckpoint(
+        filepath='model_checkpoints/ep{epoch:02d}-vacc{val_accuracy:.2f}.hdf5', verbose=0, 
+        save_best_only=False, monitor='val_accuracy', mode='auto', save_freq='epoch') # might want to change to batches
+]
+
+
+# ## Model Train Setup
+
+# In[22]:
+
+
+def create_model():
+    """
+    creates the transfomer with initial default hyperparameters
+    """
+    transformer = MusicTransformer(vocab_size=VOCAB_SIZE, **PARAMS_MODEL)
+
+    lr_sched = LearningSchedule(PARAMS_MODEL['embed_dim'], WARMUP_STEPS)
+    optimizer = keras.optimizers.Adam(learning_rate=lr_sched, **PARAMS_OPT)
+    loss = PaddedSparseCategoricalCrossentropy()
+    metrics = PaddedSparseTopKCategoricalAccuracy(k=3)
+    transformer.compile(
+        optimizer=optimizer, 
+        loss=loss, 
+        metrics=metrics)
+    return transformer
+
+
+# ## TODOs
+# 
+# * Add l2 MaxNorm regularization to layers
