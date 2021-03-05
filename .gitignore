@@ -128,10 +128,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# checkpoints
-src/lab/.ipynb_checkpoints/
+# logs
+logs/
 
 # data
 data/maestro-v3.0.0
+data/metadata
 
 src/lab/*.midi
