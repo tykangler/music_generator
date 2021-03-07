@@ -580,7 +580,7 @@ def create_decoder_mask(inputs, pad_value=0):
 # In[23]:
 
 
-class MusicTransfomer(keras.Model):
+class MusicTransformer(keras.Model):
     def __init__(self, vocab_size, embed_dim, layers, heads, 
                  key_dim, value_dim, ffnn_dim, max_relative_pos, dropout_rate, **kwargs):
         super().__init__(**kwargs)
@@ -731,12 +731,12 @@ class PaddedSparseCategoricalCrossentropy(keras.losses.SparseCategoricalCrossent
         **kwargs):
         super().__init__(name=name, **kwargs)
 
-    def _mask_metric_where_padded(raw_metric, y_true):
+    def _mask_metric_where_padded(self, raw_metric, y_true):
         """
         finds and masks sequence pads in y_true, and applies the masked result to raw_metric 
         """
         mask = tf.cast(tf.not_equal(y_true, 0), tf.float32)
-        loss_tensor_masked = mask * loss_val
+        loss_tensor_masked = mask * raw_metric
         return tf.reduce_sum(loss_tensor_masked) / tf.reduce_sum(mask) 
 
     def call(self, y_true, y_pred):
