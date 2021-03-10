@@ -179,21 +179,28 @@ class Note:
     def __eq__(self):
         return self.pitch == other.pitch and self.velocity == other.velocity and self.instrument == other.instrument
 
+    def __hash__(self):
+        return hash((self.pitch, self.velocity, self.instrument))
+
 class Wait:
     def __init__(self, beats):
         self.beats = beats
 
     def duration(self):
-        return self.beats.numerator
+        return self.beats
     
     def __str__(self):
-        return f"wait:{self.beats.numerator}"
+        return f"wait:{self.beats}"
     
     def __repr__(self):
         return f"<Wait {self.beats}>"
     
     def __eq__(self, other):
         return self.beats == other.beats
+
+    def __hash__(self):
+        return hash(self.beats)
+    
 
 
 # ### Converting to Notes
@@ -205,7 +212,7 @@ def to_beats(track, tick_per_beat, limit=0):
     if limit > 0:
         track = islice(track, limit)
     tick_to_beat = lambda tick, tick_per_beat: tick / tick_per_beat 
-    return [(Wait(Fraction(tick_to_beat(msg.time, tick_per_beat))), Note(get_pitch(msg.note), msg.velocity))
+    return [(Wait(Fraction(tick_to_beat(msg.time, tick_per_beat)).numerator), Note(get_pitch(msg.note), msg.velocity))
             for msg in track if msg.type == 'note_on']
 
 
@@ -226,7 +233,7 @@ schumann_seq[:30]
 BEAT_BASE = BEAT / BEAT_RESOLUTION
 
 
-# Using this approach, we will have 16 waits defined in the vocabulary (wait:[1-16]). However, a constant resolution needs to be set for all songs. Test quantizing a faster song.
+# Using this approach, we will have 16 waits defined in the vocabulary (wait:[1-16]). Waits longer than 1 beat will be recorded as (wait:16, wait:n). However, a constant resolution needs to be set for all songs. Test quantizing a faster song.
 
 # ### Quantizing faster songs
 

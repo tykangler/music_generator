@@ -5,7 +5,7 @@
 # 
 # 1276 total files, 962 train files (75%)
 
-# In[1]:
+# In[9]:
 
 
 import os
@@ -18,7 +18,7 @@ import collections
 
 # ## Multi-Head Relative Attention
 
-# In[2]:
+# In[10]:
 
 
 class MultiHeadRelativeAttention(keras.layers.Layer):
@@ -27,18 +27,22 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
     The input K, and V matrices have the shape of (batch, seqlen, dim). The input Q matrix has the shape (batch, query_seqlen, dim).
     The output shape will equal the shape of the query matrix. 
     :params:
-        heads: the number of heads to project q, k, and v matrices to
-        dim: the dimensions of the weighted query and key matrices
-        max_relative_pos: the 
+        heads: the number of heads to project q, k, and v matrices
+        max_relative_pos: the max relative position that will be considered,
+        key_dim: the dimensions of the weighted query and key matrices
+        value_dim: the dimensions of the weighted value matrices
+        kernel_constraint: weight constraints applied to Q, K, V weights
     """
-    def __init__(self, heads, max_relative_pos, key_dim=None, value_dim=None, **kwargs):
+    def __init__(self, heads, max_relative_pos, key_dim=None, value_dim=None, kernel_constraint=None, **kwargs):
         super().__init__(**kwargs)
         # query and key will have the same dimensions. value may or may not have the same dimensions. if value 
         # not specified, then value = key
+        # query may have different seqlen
         self.heads = heads
         self.key_dim = key_dim
         self.value_dim = value_dim
         self.max_relative_pos = max_relative_pos
+        self.kernel_constraint = kernel_constraint
 
     def build(self, input_shape):
         batch, query_seqlen, dim_input = input_shape
@@ -53,17 +57,23 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
  
         # relative positional encoding
         num_rprs = self.max_relative_pos * 2 + 1
-        self.rpr_key_embedding = keras.layers.Embedding(num_rprs, self.head_qk_dim, name="relative embedding (key)")
-        self.rpr_value_embedding = keras.layers.Embedding(num_rprs, self.head_v_dim, name="relative embedding (value)")
+        self.rpr_key_embedding = keras.layers.Embedding(
+            num_rprs, self.head_qk_dim, embeddings_constraint=self.kernel_constraint, name="relative embedding (key)")
+        self.rpr_value_embedding = keras.layers.Embedding(
+            num_rprs, self.head_v_dim, embeddings_constraint=self.kernel_constraint, name="relative embedding (value)")
         self.rpr_lookup = self._generate_rpr_lookup(query_seqlen, self.max_relative_pos)
 
         # project to heads after applying weights/dense
-        self.weights_q = keras.layers.Dense(qk_dim, use_bias=False, name="query weights")
-        self.weights_k = keras.layers.Dense(qk_dim, use_bias=False, name="key weights")
-        self.weights_v = keras.layers.Dense(v_dim, use_bias=False, name="value weights")
+        self.weights_q = keras.layers.Dense(
+            qk_dim, use_bias=False, kernel_constraint=self.kernel_constraint, name="query weights")
+        self.weights_k = keras.layers.Dense(
+            qk_dim, use_bias=False, kernel_constraint=self.kernel_constraint, name="key weights")
+        self.weights_v = keras.layers.Dense(
+            v_dim, use_bias=False, kernel_constraint=self.kernel_constraint, name="value weights")
 
         # concatenated heads passed as input
-        self.concat_head_weights = keras.layers.Dense(input_shape[-1], name="concat weights")
+        self.concat_head_weights = keras.layers.Dense(
+            input_shape[-1], kernel_constraint=self.kernel_constraint, name="concat weights")
 
         super().build(input_shape)
 
@@ -79,11 +89,12 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
             query: tensor of shape (batch, q_seqlen, dim)
             key: tensor of shape (batch, seqlen, dim)
             value: tensor of shape (batch, seqlen, dim)
-            mask: tensor with shape equal to or broadcastable to (batch, q_seqlen, seqlen)
+            mask: tensor with shape equal to or broadcastable to (batch, q_seqlen, seqlen) to be applied to each attn head
         :returns:
-            attn_scores: Attention scores with shape (..., q_seqlen, dim), i.e., the attention scores
+            attn_scores: Attention scores with shape (batch, q_seqlen, dim), i.e., the attention scores
                 for each head in each batch
-            attn_weights: Attention weights applied to the value tensor
+            attn_weights: Attention weights with shape (batch, heads, q_seqlen, seqlen) 
+                applied to the value tensor for each head
         """
         if key is not None:
             key = value
@@ -186,7 +197,8 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
             query: tensors of shape (batch, heads, q_seqlen, head_qk_dim)
             value: tensors of shape (batch, heads, seqlen, head_v_dim)
             key: tensors of shape (batch, heads, seqlen, head_qk_dim)
-            mask: tensor of shape (batch, q_seqlen, seqlen) applied after first matmul and just prior to softmax
+            mask: tensor with shape equal to or broadcastable to (batch, q_seqlen, seqlen) 
+                  applied after first matmul and just prior to softmax
         :returns:
             attn_scores: Attention scores with shape (..., seqlen, dim), i.e., the attention scores
                 for each head in each batch
@@ -221,21 +233,34 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
             max_relative_pos=self.max_relative_pos,
             key_dim=self.key_dim,
             value_dim=self.value_dim,
+            kernel_constraint=self.kernel_constraint.get_config()
         ))
         return config
 
 
 # ## Encoder
 
-# In[3]:
+# In[11]:
 
 
 class Encoder(keras.layers.Layer):
-    def __init__(self, heads, ffnn_dim, max_relative_pos, dropout_rate=0.2, **kwargs):
+    """
+    A single encoder layer to be used in the encoder stack. This takes in an embedded input sequence, calculates self 
+    attention weights, and outputs self attention scores for the embedded input sequence.
+
+    params:
+        heads: the number of heads to split the input sequence into in the relative attention step.
+        ffnn_dim: the number of hidden layer units in the position wise feed forward step.
+        max_relative_pos: the max distance considered for relative attention
+        dropout_rate: rate of dropout 
+        kernel_constraint: weight constraints for the attention and ffnn step
+    """
+    def __init__(self, heads, ffnn_dim, max_relative_pos, dropout_rate=0.2, kernel_constraint=None, **kwargs):
         super().__init__(**kwargs)
         self.heads = heads
         self.ffnn_dim = ffnn_dim
         self.dropout_rate = dropout_rate
+        self.kernel_constraint = kernel_cosntraint
         self.attn = dict(
             layer=MultiHeadRelativeAttention(
                 heads=heads, 
@@ -248,14 +273,26 @@ class Encoder(keras.layers.Layer):
         embed_dim = input_shape[-1]
         self.ffnn = dict(
             layer=keras.Sequential([
-                keras.layers.Dense(self.ffnn_dim, activation="relu"),
-                keras.layers.Dense(embed_dim)
+                keras.layers.Dense(self.ffnn_dim, kernel_constraint=self.kernel_constraint, activation="relu"),
+                keras.layers.Dense(embed_dim, kernel_constraint=self.kernel_constraint)
             ], name="Encoder Pointwise Feed Forward"),
             dropout=keras.layers.Dropout(rate=self.dropout_rate),
             norm=keras.layers.LayerNormalization())
         super().build(input_shape)
     
     def call(self, inputs, padding_mask, training):
+        """
+        computes self attention, passes result through a ffnn with one hidden layer, and employs residual
+        connections through a layer norm
+        params:
+            inputs: tensor of shape (batch, q_seqlen, dim)
+            padding_mask: tensor of shape (batch, q_seqlen, q_seqlen)
+            training: boolean representing whether this is a train step
+        returns:
+            ffnn_out: tensor of shape (batch, q_seqlen, dim)
+            attn_weights: tensor of shape (batch, heads, q_seqlen, q_seqlen) representing weight mappings from each
+                word to each other word in the input sequence for each attention head
+        """
         attn_out, attn_weights = self.attn['layer'](query=inputs, key=inputs, value=inputs, mask=padding_mask)
         attn_out = self.attn['dropout'](attn_out, training=training)
         attn_out = self.attn['norm'](inputs + attn_out)
@@ -271,34 +308,53 @@ class Encoder(keras.layers.Layer):
             embed_dim=self.embed_dim,
             heads=self.heads,
             ffnn_dim=self.ffnn_dim,
-            dropout_rate=self.dropout_rate
+            dropout_rate=self.dropout_rate,
+            kernel_constraint=self.kernel_constraint.get_config()
         ))
         return config
     
     @classmethod
     def from_config(cls, **kwargs):
-        return cls(**kwargs)
+        return NotImplemented
 
 
-# In[4]:
+# In[12]:
 
 
 class EncoderStack(keras.layers.Layer):
-    def __init__(self, units, heads, ffnn_dim, max_relative_pos, dropout_rate=0.2, **kwargs):
+    """
+    Aggregates `units` number of Encoders sequentially. The output of an encoder is passed into another encoder `units` times.
+    All other parameters are forwarded into each encoder identically.
+    params:
+        units: the number of encoders
+    """
+    def __init__(self, units, heads, ffnn_dim, max_relative_pos, dropout_rate=0.2, kernel_constraint=None, **kwargs):
         super().__init__(**kwargs)
         self.units = units
         self.heads = heads
         self.ffnn_dim = ffnn_dim
         self.dropout_rate = dropout_rate
         self.max_relative_pos = max_relative_pos
-        self.encoders = [Encoder(self.heads, self.ffnn_dim, self.max_relative_pos, self.dropout_rate) 
+        self.kernel_constraint = kernel_constraint
+        self.encoders = [Encoder(self.heads, self.ffnn_dim, self.max_relative_pos, self.dropout_rate, self.kernel_constraint) 
                          for i in range(self.units)]
     
     def call(self, inputs, padding_mask, training):
+        """
+        runs forward pass through each encoder in this stack sequentially. Each encoder's attention weights are 
+        returned as a dictionary, mapping layer to its respective weights.
+        params:
+            inputs: tensor of shape (batch, q_seqlen, dims)
+            padding_mask: tensor of shape (batch, q_seqlen, q_seqlen)
+            training: boolean representing whether this is a train step
+        returns:
+            tensor of shape (batch, q_seqlen, dims)
+            dictionary of attention weights, with "encoder_{i}" as keys            
+        """
         all_attn_weights = dict()
         for i, layer in enumerate(self.encoders):
             inputs, attn_weights = layer(inputs, padding_mask, training)
-            all_attn_weights[f'encoder{i}'] = attn_weights
+            all_attn_weights[f'encoder_{i}'] = attn_weights
         return inputs, all_attn_weights
     
     def get_config(self):
@@ -307,27 +363,35 @@ class EncoderStack(keras.layers.Layer):
             units=self.units,
             heads=self.heads,
             ffnn_dim=self.ffnn_dim,
-            dropout_rate=self.dropout_rate
+            dropout_rate=self.dropout_rate,
+            kernel_constraint=self.kernel_constraint.get_config()
         ))
         return config
 
     @classmethod
     def from_config(cls, **kwargs):
-        return cls(**kwargs)
+        return NotImplemented
 
 
 # ## Decoder
 
-# In[5]:
+# In[13]:
 
 
 class Decoder(keras.layers.Layer):
-    def __init__(self, heads, max_relative_pos, ffnn_dim, dropout_rate=0.2, **kwargs):
+    """
+    A single decoder layer to be used in the decoder stack. Computes self attention for the output sequence and cross attention
+    with the output of the encoder stack. Outputs cross attention scores with encoder output as the K, V matrices, and decoder
+    self attention output as the Q matrix. Given a sequence with shape (batch, q_seqlen, dim), the output shape will be 
+    (batch, q_seqlen, dim)
+    """
+    def __init__(self, heads, max_relative_pos, ffnn_dim, dropout_rate=0.2, kernel_constraint=None, **kwargs):
         super().__init__(**kwargs)
         self.heads = heads
         self.max_relative_pos = max_relative_pos
         self.ffnn_dim = ffnn_dim
         self.dropout_rate = dropout_rate
+        self.kernel_constraint = kernel_constraint
         self.attn = dict(
             # use either specified key_dim (recommended key_dim < embed_dim) or just keep same size
             layer=MultiHeadRelativeAttention(
@@ -350,8 +414,8 @@ class Decoder(keras.layers.Layer):
         embed_dim = input_shape[-1]
         self.ffnn = dict(
             layer=keras.Sequential([
-                keras.layers.Dense(self.ffnn_dim, activation="relu"),
-                keras.layers.Dense(embed_dim, activation="relu")
+                keras.layers.Dense(self.ffnn_dim, kernel_constraint=self.kernel_constraint, activation="relu"),
+                keras.layers.Dense(embed_dim, kernel_constraint=self.kernel_constraint)
             ], name="Decoder Pointwise Feed Forward"),
             dropout=keras.layers.Dropout(rate=self.dropout_rate),
             norm=keras.layers.LayerNormalization()
@@ -359,6 +423,17 @@ class Decoder(keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, inputs, enc_kv, padding_mask, lookahead_mask, training):
+        """
+        performs a forward pass.
+        params:
+            inputs: tensor of shape (batch, q_seqlen, dim)
+            env_kv: encoder output. tensor of shape (batch, seqlen, dim)
+            padding_mask: tensor of shape (batch, q_seqlen, seqlen) used in the cross attention step 
+                to mask encoder padding
+            lookahead_mask: tensor of shape (batch, q_seqlen, q_seqlen) used in the self attention step to 
+                mask future positions, as well as decoder padding
+            training: boolean representing whether this is a train step
+        """
         # when q, k, and v are same, this is self attention
         # otherwise it is performing cross attention
         attn_out, attn_weights = self.attn['layer'](query=inputs, key=inputs, value=inputs, mask=lookahead_mask)
@@ -380,7 +455,8 @@ class Decoder(keras.layers.Layer):
             embed_dim=self.embed_dim,
             heads=self.heads,
             ffnn_dim=self.ffnn_dim,
-            dropout_rate=self.dropout_rate
+            dropout_rate=self.dropout_rate,
+            kernel_constraint=self.kernel_constraint.get_config()
         ))
         return config
 
@@ -389,26 +465,40 @@ class Decoder(keras.layers.Layer):
         return cls(**kwargs)
 
 
-# In[6]:
+# In[14]:
 
 
 class DecoderStack(keras.layers.Layer):
-    def __init__(self, units, heads, ffnn_dim, max_relative_pos, dropout_rate=0.2, **kwargs):
+    """
+    Stack of decoder layers. Output of the ith decoder is passed into the i+1th decoder sequentially until reaching 
+    `units` decoders. All params besides `units` are forwarded into each decoder identically. 
+    """
+    def __init__(self, units, heads, ffnn_dim, max_relative_pos, dropout_rate=0.2, kernel_constraint=None, **kwargs):
         super().__init__(**kwargs)
         self.units = units
         self.heads = heads
         self.ffnn_dim = ffnn_dim
         self.max_relative_pos = max_relative_pos
         self.dropout_rate = dropout_rate
-        self.decoders = [Decoder(self.heads, self.ffnn_dim, self.max_relative_pos, self.dropout_rate)
+        self.kernel_constraint = kernel_constraint
+        self.decoders = [Decoder(self.heads, self.ffnn_dim, self.max_relative_pos, self.dropout_rate, self.kernel_constraint)
                          for i in range(self.units)]
 
     def call(self, inputs, enc_kv, padding_mask, lookahead_mask, training):
+        """
+        forward pass through all decoders in this stack.
+        params:
+            inputs: tensor of shape (batch, q_seqlen, dim)
+            enc_kv: tensor of shape (batch, seqlen, dim)
+            padding_mask: tensor of shape (batch, q_seqlen, seqlen) used to mask encoder padding
+            lookahead_mask: tensor of shape (batch, q_seqlen, q_seqlen) used in self attention step to
+                mask future positions and decoder padding
+            training: boolean representing whether is part of a train step
+        """
         all_attn_weights = dict()
-        DecoderAttentionWeights = collections.namedtuple('DecoderAttentionWeights', ['self_attn', 'cross_attn'])
         for i, layer in enumerate(self.decoders):
             inputs, *attn_weights = layer(inputs, enc_kv, padding_mask, lookahead_mask, training)
-            all_attn_weights[f'decoder{i}'] = DecoderAttentionWeights(*attn_weights)
+            all_attn_weights[f'decoder_{i}'] = attn_weights
         return inputs, all_attn_weights
 
     def get_config(self):
@@ -418,13 +508,110 @@ class DecoderStack(keras.layers.Layer):
             embed_dim=self.embed_dim,
             heads=self.heads,
             ffnn_dim=self.ffnn_dim,
-            dropout_rate=self.dropout_rate
+            dropout_rate=self.dropout_rate,
+            kernel_constraint=self.kernel_constraint
         ))
         return config
 
     @classmethod
     def from_config(cls, **kwargs):
         return cls(**kwargs)
+
+
+# ## Tokenizer
+
+# In[40]:
+
+
+class MidiTokenizer:
+    """
+    stores the vocabulary for a given input sequence, and encodes elements of the sequence into integer labels.
+    A label of 1 and 2 is given for start and end tokens respectively. The input sequence must be a python list
+    consisting of objects that implement __hash__ and __eq__. Label mappings are created lazily.
+    """
+    START_TOKEN = 'start'
+    END_TOKEN = 'end'
+
+    def __init__(self):
+        self.tokens_to_labels = {
+            self.START_TOKEN: 1,
+            self.END_TOKEN: 2
+        }
+        self.labels_to_tokens = self._rebuild_labels_mappings()
+
+    def get_label(self, element, mapping: dict) -> int:
+        if element not in mapping:
+            mapping[element] = len(mapping) + 1
+        return mapping[element]
+    
+    def encode(self, sequence: list):
+        """
+        returns a tf.Tensor with integer labels for each element in the given python list, with 
+        start and end tokens prepended and appended respectively. Given a sequence of 
+        `[Foo(2), Foo(2), Foo(4), Foo(1)]`, the output will be `[1, 3, 3, 4, 5, 2]`.
+        """
+        return tf.constant([self.get_label(self.START_TOKEN, self.tokens_to_labels)] + 
+                           [self.get_label(el, self.tokens_to_labels) for el in sequence] + 
+                           [self.get_label(self.END_TOKEN, self.tokens_to_labels)])
+
+    def decode(self, sequence, has_start=True, has_end=True) -> list:
+        """
+        Given a tf.Tensor with integer labels, this returns a python list with each label replaced
+        with its respective object. For proper decoding, the sequence must have been encoded with 
+        the same tokenizer.
+        params:
+            sequence: a tf.Tensor of integer labels
+            has_start: whether the sequence has a start token prepended
+            has_end: whether the sequence has a end token appended
+        """
+        self.labels_to_tokens = self._rebuild_labels_mappings()
+        decoded = [self.get_label(el, self.labels_to_tokens) for el in sequence.numpy()]
+        decoded = decoded[1:] if has_start else decoded
+        decoded = decoded[:-1] if has_end else decoded
+        return decoded
+
+    def _rebuild_labels_mappings(self):
+        return { value: key for key, value in self.tokens_to_labels.items() }
+
+    def __len__(self):
+        return len(self.tokens_to_labels)
+    
+    def vocab_size(self):
+        return len(self)
+
+    def start_token(self):
+        return self.tokens_to_labels[self.START_TOKEN]
+
+    def end_token(self):
+        return self.tokens_to_labels[self.END_TOKEN]
+
+
+# In[49]:
+
+
+class Foo:
+    def __init__(self, i):
+        self.i = i
+
+    def __hash__(self):
+        return hash(self.i)
+
+    def __eq__(self, other):
+        return self.i == other.i
+
+    def __str__(self):
+        return f"<Foo i={self.i}>"
+
+    def __repr__(self):
+        return str(self)
+
+tokenizer = MidiTokenizer()
+encoded = tokenizer.encode([Foo(4), Foo(2), Foo(9)])
+encoded2 = tokenizer.encode([Foo(2), Foo(4), Foo(9)])
+display(encoded)
+display(encoded2)
+display(tokenizer.decode(encoded))
+display(tokenizer.decode(encoded2))
 
 
 # ## Embeddings
@@ -436,7 +623,7 @@ class DecoderStack(keras.layers.Layer):
 
 # $$\large{\omega(k) = \frac{1}{10000^{2k / d}}}$$
 
-# In[7]:
+# In[17]:
 
 
 OMEGA_SCALE = 10000
@@ -456,7 +643,7 @@ def positional_embeddings(max_pos, dims):
     return embeddings
 
 
-# In[8]:
+# In[18]:
 
 
 EMBED_DIMS = 64
@@ -472,17 +659,28 @@ plt.show()
 
 # ### Embedding Layer
 
-# In[9]:
+# In[19]:
 
 
 class Embedding(keras.layers.Layer):
-    def __init__(self, vocab_size, output_dim, dropout_rate=0.2, **kwargs):
+    """
+    Embeds sequence of integer labels into vectors of fixed size. Each element in each batch
+    is converted to a vector of size `output_dim`.
+    params:
+        vocab_size: size of the vocabulary, all integers should be within the vocabulary 
+        output_dim: dimensions of the output vectors
+        dropout_rate: dropout rate
+        embeddings_constraint: weight constraint for embeddings
+    """
+    def __init__(self, vocab_size, output_dim, dropout_rate=0.2, embeddings_constraint=None, **kwargs):
         super().__init__(**kwargs)
         self.vocab_size = vocab_size
         self.output_dim = output_dim
+        self.embeddings_constraint = embeddings_constraint
         self.token_embedding = keras.layers.Embedding(
             input_dim=vocab_size, 
             output_dim=output_dim,
+            embeddings_constraint=self.embeddings_constraint,
             name="token embedding")
         self.dropout = keras.layers.Dropout(rate=dropout_rate)
 
@@ -492,6 +690,13 @@ class Embedding(keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, inputs, training):
+        """
+        params:
+            inputs: tensor of shape (batch, seqlen)
+            training: boolean representing whether this is a train step
+        returns:
+            tensor of shape (batch, seqlen, output_dim)
+        """
         max_seqlen_in_batch = np.shape(inputs)[-1]
         embed_out = self.token_embedding(inputs)
 
@@ -509,7 +714,8 @@ class Embedding(keras.layers.Layer):
         config.update(dict(
             vocab_size=self.vocab_size,
             output_dim=self.output_dim,
-            dropout_rate=self.dropout_rate
+            dropout_rate=self.dropout_rate,
+            embeddings_constraint=self.embeddings_constraint
         ))
         return config
 
@@ -520,7 +726,7 @@ class Embedding(keras.layers.Layer):
 
 # ## Masking
 
-# In[10]:
+# In[20]:
 
 
 def create_padding_mask(inputs, pad_value=0):
@@ -535,7 +741,7 @@ def create_padding_mask(inputs, pad_value=0):
     return mask 
 
 
-# In[11]:
+# In[21]:
 
 
 def create_lookahead_mask(dim):
@@ -549,7 +755,7 @@ def create_lookahead_mask(dim):
     return mask
 
 
-# In[12]:
+# In[22]:
 
 
 def create_decoder_mask(inputs, pad_value=0):
@@ -562,6 +768,12 @@ def create_decoder_mask(inputs, pad_value=0):
     pad_mask = pad_mask[:, tf.newaxis, :] # (batch, 1, seqlen)
     return tf.maximum(pad_mask, lookahead_mask)
     
+
+
+# In[23]:
+
+
+create_decoder_mask(tf.constant([[1, 2, 3, 0, 0],[2, 3, 0, 0, 0]]))[:, np.newaxis, ...]
 
 
 # ## Relative Embedding
@@ -577,12 +789,13 @@ def create_decoder_mask(inputs, pad_value=0):
 # 
 # Use same vocab_size for both encoder and decoder. Because the vocabulary is the same, we can share the embeddings for both encoder and decoder and train with more data. Could embeddings be trained incorrectly due to bad data? No prob not.
 
-# In[23]:
+# In[24]:
 
 
 class MusicTransformer(keras.Model):
     def __init__(self, vocab_size, embed_dim, layers, heads, 
-                 key_dim, value_dim, ffnn_dim, max_relative_pos, dropout_rate, **kwargs):
+                 key_dim, value_dim, ffnn_dim, max_relative_pos, dropout_rate, 
+                 kernel_constraint=None, **kwargs):
         super().__init__(**kwargs)
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
@@ -593,12 +806,14 @@ class MusicTransformer(keras.Model):
         self.ffnn_dim = ffnn_dim
         self.max_relative_pos = max_relative_pos
         self.dropout_rate = dropout_rate
+        self.kernel_constraint = kernel_constraint
         self.encoders = EncoderStack(
             units=layers, 
             heads=heads, 
             ffnn_dim=ffnn_dim, 
             max_relative_pos=max_relative_pos,
             dropout_rate=dropout_rate,
+            kernel_constraint=kernel_constraint,
             name=f"Encoder Stack ({layers} layers)")
         self.decoders = DecoderStack(
             units=layers,
@@ -606,12 +821,14 @@ class MusicTransformer(keras.Model):
             ffnn_dim=ffnn_dim,
             max_relative_pos=max_relative_pos,
             dropout_rate=dropout_rate,
+            kernel_constraint=kernel_constraint,
             name=f"Decoder Stack ({layers} layers)"
         )
         self.embedding = Embedding(
             output_dim=embed_dim,
             vocab_size=vocab_size,
             dropout_rate=dropout_rate,
+            embeddings_constraint=kernel_constraint,
             name="Encoder Embedding"
         ) # dec_embedding can be shared due to same vocab, but on separate vocabs, use different
         self.linear = keras.layers.Dense(vocab_size, activation=keras.activations.softmax, name="Dense Layer + Softmax")
@@ -626,30 +843,35 @@ class MusicTransformer(keras.Model):
             training: boolean representing whether this forward pass is part of training
             features: tensor of shape (batch, dim) for additional features
         returns:
-            tensor of shape (batch, target_seqlen, vocab_size)
+            result: tensor of shape (batch, target_seqlen, vocab_size)
+            enc_weights: encoder weights of shape (batch, )
+
         """
         enc_out = self.embedding(inputs=inputs)
-        enc_out, encoder_attn_weights = self.encoders(
+        enc_out, enc_weights = self.encoders(
             inputs=enc_out, 
             padding_mask=padding_mask, 
             training=training)
 
         dec_out = self.embedding(inputs=targets)
-        dec_out, dec_weights = self.decoders(
+        dec_out, dec_weights, encdec_weights = self.decoders(
             inputs=dec_out, 
             enc_kv=enc_out, 
             padding_mask=padding_mask, # to mask encoder output in cross attn block where padding exists
             lookahead_mask=lookahead_mask, 
             training=training)
 
-        features = features[:, tf.newaxis, :] # (batch, 1, dim)
-        features = tf.tile(features, [1, dec_out.shape[1], 1]) # (batch, dec_out.shape[1], dim)
+        if features is None:
+            features = tf.constant([])
+        else:
+            features = features[:, tf.newaxis, :] # (batch, 1, dim)
+            features = tf.tile(features, [1, dec_out.shape[1], 1]) # (batch, dec_out.shape[1], dim)
         concatenated = keras.layers.concatenate([dec_out, features])
 
-        result, decoder_attn_weights = self.linear(dec_out)
-        return result, encoder_attn_weights, decoder_attn_weights
+        result = self.linear(concatenated)
+        return result, enc_weights, dec_weights, encdec_weights
 
-    def _preprocess(self, data):
+    def _process(self, data):
         inputs, target = data # ([batch, seqlen], [batch, seqlen + 2])
 
         # ['start', ...], [..., 'end']
@@ -667,9 +889,9 @@ class MusicTransformer(keras.Model):
         return inputs, target_input, target_output, pad_mask, dec_mask
     
     def train_step(self, data):
-        inputs, target_input, target_output, pad_mask, dec_mask = self._preprocess(data)
+        inputs, target_input, target_output, pad_mask, dec_mask = self._process(data)
         with tf.GradientTape() as tape:
-            y_pred = self(
+            y_pred, *weights = self(
                 inputs=inputs, 
                 target=target_input,
                 # features=??, 
@@ -684,8 +906,8 @@ class MusicTransformer(keras.Model):
         return { metric.name: metric.result() for metric in self.metrics }
 
     def test_step(self, data):
-        inputs, target_input, target_output, pad_mask, dec_mask = self._preprocess(data)
-        y_pred = self(
+        inputs, target_input, target_output, pad_mask, dec_mask = self._process(data)
+        y_pred, *weights = self(
             inputs=inputs,
             target=target_input,
             # features=??
@@ -704,7 +926,7 @@ class MusicTransformer(keras.Model):
 # 
 # $$\large{\text{lrate} = d^{-0.5}_{\text{model}} * \text{min}(\text{step_num}^{-0.5}, \ \text{step_num} * \text{warmup_steps}^{-1.5})}$$
 
-# In[14]:
+# In[25]:
 
 
 class LearningSchedule(keras.optimizers.schedules.LearningRateSchedule):
@@ -721,15 +943,16 @@ class LearningSchedule(keras.optimizers.schedules.LearningRateSchedule):
 # 
 # Use Sparse Categorical Cross Entropy, rather than Categorical Cross Entropy, as the sparse variant accepts labeled class inputs, not one-hot encoded class inputs. We'll have to create a custom loss function that will handle the padding that the target sequence will have. Padding tokens should be ignored when calculating loss.
 
-# In[19]:
+# In[27]:
 
 
 class PaddedSparseCategoricalCrossentropy(keras.losses.SparseCategoricalCrossentropy):
     def __init__(
         self, 
         name="padded_sparse_categorical_cross_entropy", 
+        k=5,
         **kwargs):
-        super().__init__(name=name, **kwargs)
+        super().__init__(name=name, k=k, **kwargs)
 
     def _mask_metric_where_padded(self, raw_metric, y_true):
         """
@@ -753,7 +976,7 @@ class PaddedSparseCategoricalCrossentropy(keras.losses.SparseCategoricalCrossent
 
 # ## Metrics
 
-# In[20]:
+# In[28]:
 
 
 class PaddedSparseTopKCategoricalAccuracy(keras.metrics.Metric):
@@ -778,7 +1001,7 @@ class PaddedSparseTopKCategoricalAccuracy(keras.metrics.Metric):
 
 # ## Hyperparameters
 
-# In[26]:
+# In[29]:
 
 
 PARAMS_MODEL = {
@@ -789,7 +1012,8 @@ PARAMS_MODEL = {
     'value_dim': 512,
     'ffnn_dim': 256,
     'max_relative_pos': 64, # multiples of 4-note chords
-    'dropout_rate': 0.2
+    'dropout_rate': 0.2,
+    'kernel_constraint': keras.constraints.MaxNorm(max_value=2, axis=0)
 }
 
 PARAMS_OPT = {
@@ -798,7 +1022,7 @@ PARAMS_OPT = {
     'epsilon': 1e-7,
 }
 WARMUP_STEPS = 4000
-VOCAB_SIZE = 2832 # 16 waits + 32 volumes x 128 notes x 1 instrument
+VOCAB_SIZE = 2920 # 16 waits + 32 volumes * 88 notes * 1 instrument + 88 note_offs
 
 
 # ## Callbacks
@@ -807,7 +1031,7 @@ VOCAB_SIZE = 2832 # 16 waits + 32 volumes x 128 notes x 1 instrument
 # * Tensorboard
 # * Checkpoints every `n` epoch
 
-# In[21]:
+# In[30]:
 
 
 # change log_dir and checkpoint filepath at future point
@@ -817,14 +1041,14 @@ callbacks = [
         log_dir='logs', write_graph=True, histogram_freq=50, # in epochs
         update_freq='epoch', profile_batch=2, embeddings_freq=50), # in epochs
     keras.callbacks.ModelCheckpoint(
-        filepath='model_checkpoints/ep{epoch:02d}-vacc{val_accuracy:.2f}.hdf5', verbose=0, 
+        filepath='model_checkpoints/ep{epoch:02d}-val_acc{val_accuracy:.2f}.hdf5', verbose=0, 
         save_best_only=False, monitor='val_accuracy', mode='auto', save_freq='epoch') # might want to change to batches
 ]
 
 
 # ## Model Train Setup
 
-# In[22]:
+# In[31]:
 
 
 def create_model():
@@ -835,7 +1059,7 @@ def create_model():
 
     lr_sched = LearningSchedule(PARAMS_MODEL['embed_dim'], WARMUP_STEPS)
     optimizer = keras.optimizers.Adam(learning_rate=lr_sched, **PARAMS_OPT)
-    loss = PaddedSparseCategoricalCrossentropy()
+    loss = PaddedSparseCategoricalCrossentropy(k=3)
     metrics = PaddedSparseTopKCategoricalAccuracy(k=3)
     transformer.compile(
         optimizer=optimizer, 
@@ -844,6 +1068,62 @@ def create_model():
     return transformer
 
 
+# ## Test Run
+
+# In[33]:
+
+
+def predict(model, input_seq: list, end_token: int, start_token: int, max_len=10):
+    """
+    infers a continuation of the input sequence until the given end token is reached, or until the inferred continuation
+    has a sequence length of max_len.
+    params:
+        input_seq: a python list with shape (seqlen), with elements representing the preprocessed notes/waits of a midi sequence
+        end_token: the designated token to end the sequence with
+        start_token: the designated start token
+        max_len: maximum length of the continued sequence
+    """
+    output_seq = tf.constant([start_token])[tf.newaxis, :] # (batch=1, q_seqlen=1)
+    tokenizer = MidiTokenizer()
+    input_seq = tokenizer.encode(input_seq)[tf.newaxis, ...] # (batch=1, seqlen)
+    input_padding_mask = create_padding_mask(input_seq)[:, tf.newaxis, :] # (batch=1, q_seqlen=1 (broadcast), seqlen)
+    AttentionWeights = collections.namedtuple('AttentionWeights', ['enc_weights', 'dec_weights', 'encdec_weights'])
+
+    while tf.size(output_seq) != max_len and output_seq[-1, -1] != end_token:
+        decoder_mask = create_decoder_mask(output_seq) # (batch=1, seqlen, seqlen)
+        # generated_seq is made up of ignored first n - 1 tokens, with the final nth token being the prediction
+        generated_seq, *weights = model(
+            inputs=input_seq, 
+            targets=output_seq,
+            # features=??,
+            padding_mask=input_padding_mask,
+            lookahead_mask=decoder_mask,
+            training=False) # (batch=1, q_seqlen, vocab_size)
+        last_notes = generated_seq[:, -1:, :] # (batch=1, 1, vocab_size)
+        generated_labels = tf.argmax(last_notes, axis=-1) 
+        # (batch=1, 1), what if gen label = 0, model should be trained to not gen 0
+        output_seq = tf.concat([output_seq, generated_labels], axis=-1)
+
+    return output_seq, enc_weights, dec_weights, encdec_weights
+
+
 # ## TODOs
 # 
-# * Add l2 MaxNorm regularization to layers
+# * [x] Add l2 MaxNorm regularization to layers
+#     * ~~Use self.losses~~, weights automatically adjusted as updated
+#     * [x] Implement for multihead relative attention
+# * [ ] Configs for kernel constraints 
+# * [ ] Pass features into model
+# * [ ] Clean and Checkup
+# * [ ] Callback Manager
+# * [ ] Directory Manager
+# * [ ] Modify `test_step()` to use predict method using seqlen of validation sequence
+# * [ ] Document all classes and methods with required shapes
+
+# > This will be continued in script format outside of the notebook...
+
+# In[ ]:
+
+
+
+
