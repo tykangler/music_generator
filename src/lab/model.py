@@ -1121,9 +1121,3 @@ def predict(model, input_seq: list, end_token: int, start_token: int, max_len=10
 # * [ ] Document all classes and methods with required shapes
 
 # > This will be continued in script format outside of the notebook...
-
-# In[ ]:
-
-
-
-
