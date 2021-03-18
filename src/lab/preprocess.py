@@ -176,7 +176,7 @@ class Note:
     def __repr__(self):
         return f"<Note pitch={self.pitch} velocity={self.velocity} instrument={self.instrument}>"
 
-    def __eq__(self):
+    def __eq__(self, other):
         return self.pitch == other.pitch and self.velocity == other.velocity and self.instrument == other.instrument
 
     def __hash__(self):
@@ -401,4 +401,3 @@ play_midi(TEST_FAST_FILE)
 
 # Test playback quantized (fast)
 play_midi('rachmaninoff.midi')
-
