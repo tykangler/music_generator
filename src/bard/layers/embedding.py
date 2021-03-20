@@ -33,7 +33,7 @@ class Embedding(keras.layers.Layer):
       super().__init__(**kwargs)
       self.vocab_size = vocab_size
       self.output_dim = output_dim
-      self.embeddings_constraint = embeddings_constraint
+      self.embeddings_constraint = keras.constraints.get(embeddings_constraint)
       self.token_embedding = keras.layers.Embedding(
          input_dim=vocab_size, 
          output_dim=output_dim,
@@ -72,10 +72,10 @@ class Embedding(keras.layers.Layer):
          vocab_size=self.vocab_size,
          output_dim=self.output_dim,
          dropout_rate=self.dropout_rate,
-         embeddings_constraint=self.embeddings_constraint
+         embeddings_constraint=keras.constraints.serialize(self.embeddings_constraint)
       ))
       return config
 
    @classmethod
-   def from_config(cls, **kwargs):
-      return cls(**kwargs)
+   def from_config(cls, config):
+      return cls(**config)

@@ -1,25 +1,59 @@
-import sys
 import tensorflow as tf
 from tensorflow import keras
 import collections
 from bard.generator.model import MusicTransformer
-from bard.generator import state
 from bard.train.learning import LearningSchedule
 from bard.train.loss import PaddedSparseCategoricalCrossentropy
 from bard.train.metric import PaddedSparseTopKCategoricalAccuracy
 from bard.midi.tokenizer import MidiTokenizer
+from bard.midi import meta
+from bard.midi import preprocess
 from bard.layers.masking import create_padding_mask, create_decoder_mask
+
+EMBED_DIM = 512
+LAYERS = 6
+HEADS = 8
+KEY_DIM = 512
+VALUE_DIM = 512
+FFNN_DIM = 256
+MAX_RELATIVE_POS = 64 # multiples of 4-note chords
+DROPOUT_RATE = 0.2
+KERNEL_CONSTRAINT = keras.constraints.MaxNorm(max_value=2, axis=0)
+
+BETA_1 = 0.9
+BETA_2 = 0.999
+EPSILON = 1e-7
+
+WARMUP_STEPS = 4000
+VOCAB_SIZE = 2920 # 16 waits + 32 volumes * 88 notes * 1 instrument + 88 note_offs
+
+MAX_VELOCITY = 128
+MIN_VELOCITY = 1
+
+def load_model():
+   pass
+
+def save_model(model):
+   pass
 
 def create_model():
    """
    creates the transfomer with initial default hyperparameters
    """
    transformer = MusicTransformer(
-      vocab_size=state.VOCAB_SIZE, 
-      **state.PARAMS_MODEL)
+      vocab_size=VOCAB_SIZE, 
+      embed_dim=EMBED_DIM,
+      layers=LAYERS,
+      heads=HEADS,
+      key_dim=KEY_DIM,
+      value_dim=VALUE_DIM,
+      ffnn_dim=FFNN_DIM,
+      max_relative_pos=MAX_RELATIVE_POS,
+      dropout_rate=DROPOUT_RATE,
+      kernel_constraint=KERNEL_CONSTRAINT)
 
-   lr_sched = LearningSchedule(state.PARAMS_MODEL['embed_dim'], state.WARMUP_STEPS)
-   optimizer = keras.optimizers.Adam(learning_rate=lr_sched, **state.PARAMS_OPT)
+   lr_sched = LearningSchedule(PARAMS_MODEL['embed_dim'], WARMUP_STEPS)
+   optimizer = keras.optimizers.Adam(learning_rate=lr_sched, **PARAMS_OPT)
    loss = PaddedSparseCategoricalCrossentropy(k=3)
    metrics = PaddedSparseTopKCategoricalAccuracy(k=3)
    transformer.compile(
@@ -28,13 +62,12 @@ def create_model():
       metrics=metrics)
    return transformer
 
-
 def predict(model, input_seq: list, end_token: int, start_token: int, max_len=10):
    """
-   infers a continuation of the input sequence until the given end token is reached, or until the inferred continuation
+   infers a continuation of the input sequence until the given end token is reached, or until the continuation
    has a sequence length of max_len.
    params:
-      input_seq: a python list with shape (seqlen), with elements representing the preprocessed notes/waits of a midi sequence
+      input_seq: a list with shape (seqlen), with elements representing the preprocessed notes/waits of a midi sequence
       end_token: the designated token to end the sequence with
       start_token: the designated start token
       max_len: maximum length of the continued sequence
@@ -62,6 +95,13 @@ def predict(model, input_seq: list, end_token: int, start_token: int, max_len=10
 
    return output_seq, AttentionWeights(*weights)
 
+def preprocess_raw_midi(midi, midi_len, beat_resolution, velocity_bins):
+   quantized_times = preprocess.quantize(
+      midi, midi.ticks_per_beat, beat_resolution, midi_len, key=lambda msg: msg.time)
+   binned_velocities = preprocess.bin(
+      midi, velocity_bins, MAX_VELOCITY, MIN_VELOCITY, midi_len, key=lambda msg: msg.velocity
+   )
+
 if __name__ == '__main__':
    pass
 
@@ -70,7 +110,7 @@ if __name__ == '__main__':
 # * [x] Add l2 MaxNorm regularization to layers
 #     * ~~Use self.losses~~, weights automatically adjusted as updated
 #     * [x] Implement for multihead relative attention
-# * [ ] Configs for kernel constraints 
+# * [x] Configs for kernel constraints 
 # * [ ] Pass features into model
 # * [ ] Clean and Checkup
 # * [ ] Callback Manager

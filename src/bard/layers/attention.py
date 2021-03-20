@@ -23,7 +23,7 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       self.key_dim = key_dim
       self.value_dim = value_dim
       self.max_relative_pos = max_relative_pos
-      self.kernel_constraint = kernel_constraint
+      self.kernel_constraint = keras.constraints.get(kernel_constraint)
 
    def build(self, input_shape):
       batch, query_seqlen, dim_input = input_shape
@@ -204,8 +204,8 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       return attn_scores, attn_weights
 
    @classmethod
-   def from_config(cls, **kwargs):
-      return cls(**kwargs)
+   def from_config(cls, config):
+      return cls(**config)
 
    def get_config(self):
       config = super().get_config()
@@ -214,6 +214,6 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
          max_relative_pos=self.max_relative_pos,
          key_dim=self.key_dim,
          value_dim=self.value_dim,
-         kernel_constraint=self.kernel_constraint.get_config()
+         kernel_constraint=keras.constraints.serialize(self.kernel_constraint)
       ))
       return config

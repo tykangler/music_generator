@@ -16,7 +16,7 @@ class MusicTransformer(keras.Model):
       self.ffnn_dim = ffnn_dim
       self.max_relative_pos = max_relative_pos
       self.dropout_rate = dropout_rate
-      self.kernel_constraint = kernel_constraint
+      self.kernel_constraint = keras.constraints.get(kernel_constraint)
       self.encoders = encoder.EncoderStack(
          units=layers, 
          heads=heads, 
@@ -128,3 +128,23 @@ class MusicTransformer(keras.Model):
       self.compiled_loss(target_output, y_pred)
       self.compiled_metrics.update_state(target_output, y_pred)
       return { metric.name: metric.result() for metric in self.metrics}
+
+   def get_config(self):
+      config = super().get_config()
+      config.update({
+         'vocab_size': self.vocab_size,
+         'embed_dim': self.embed_dim,
+         'layers': self.layers,
+         'heads': self.heads,
+         'key_dim': self.key_dim,
+         'value_dim': self.value_dim,
+         'ffnn_dim': self.ffnn_dim,
+         'max_relative_pos': self.max_relative_pos,
+         'dropout_rate': self.dropout_rate,
+         'kernel_constraint': keras.constraints.serialize(self.kernel_constraint)
+      })
+      return config
+
+   @classmethod
+   def from_config(cls, config):
+      return cls(**config)

@@ -19,7 +19,7 @@ class Encoder(keras.layers.Layer):
       self.heads = heads
       self.ffnn_dim = ffnn_dim
       self.dropout_rate = dropout_rate
-      self.kernel_constraint = kernel_constraint
+      self.kernel_constraint = keras.constraints.get(kernel_constraint)
       self.attn = dict(
          layer=MultiHeadRelativeAttention(
                heads=heads, 
@@ -120,10 +120,10 @@ class EncoderStack(keras.layers.Layer):
          heads=self.heads,
          ffnn_dim=self.ffnn_dim,
          dropout_rate=self.dropout_rate,
-         kernel_constraint=self.kernel_constraint.get_config()
+         kernel_constraint=keras.constraints.serialize(self.kernel_constraint)
       ))
       return config
 
    @classmethod
-   def from_config(cls, **kwargs):
-      return NotImplemented
+   def from_config(cls, config):
+      return cls(**config)

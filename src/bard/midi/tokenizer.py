@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 
 class MidiTokenizer:
    """
@@ -21,15 +22,15 @@ class MidiTokenizer:
          mapping[element] = len(mapping) + 1
       return mapping[element]
    
-   def encode(self, sequence: list):
+   def encode(self, sequence: np.ndarray):
       """
       returns a tf.Tensor with integer labels for each element in the given python list, with 
       start and end tokens prepended and appended respectively. Given a sequence of 
       `[Foo(2), Foo(2), Foo(4), Foo(1)]`, the output will be `[1, 3, 3, 4, 5, 2]`.
       """
       return tf.constant([self.get_label(self.START_TOKEN, self.tokens_to_labels)] + 
-                        [self.get_label(el, self.tokens_to_labels) for el in sequence] + 
-                        [self.get_label(self.END_TOKEN, self.tokens_to_labels)])
+                         [self.get_label(el, self.tokens_to_labels) for el in sequence] + 
+                         [self.get_label(self.END_TOKEN, self.tokens_to_labels)])
 
    def decode(self, sequence, has_start=True, has_end=True) -> list:
       """

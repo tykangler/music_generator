@@ -16,7 +16,7 @@ class Decoder(keras.layers.Layer):
       self.max_relative_pos = max_relative_pos
       self.ffnn_dim = ffnn_dim
       self.dropout_rate = dropout_rate
-      self.kernel_constraint = kernel_constraint
+      self.kernel_constraint = keras.constraints.get(kernel_constraint)
       self.attn = dict(
          # use either specified key_dim (recommended key_dim < embed_dim) or just keep same size
          layer=MultiHeadRelativeAttention(
@@ -130,10 +130,10 @@ class DecoderStack(keras.layers.Layer):
          heads=self.heads,
          ffnn_dim=self.ffnn_dim,
          dropout_rate=self.dropout_rate,
-         kernel_constraint=self.kernel_constraint
+         kernel_constraint=keras.constraints.serialize(self.kernel_constraint)
       ))
       return config
 
    @classmethod
-   def from_config(cls, **kwargs):
-      return cls(**kwargs)
+   def from_config(cls, config):
+      return cls(**config)

@@ -1,6 +1,8 @@
 import numpy as np
 import dataclasses
 
+__all__ = ['Control', 'Note', 'Wait', 'quantize', 'vocabularize', 'bin']
+
 @dataclasses.dataclass
 class Control:
    """
@@ -79,7 +81,7 @@ def vocabularize(sequence, seqlen=None) -> np.ndarray:
    vocab_track: np.ndarray = np.fromiter(vocabularized, dtype=np.int32, count=seqlen)
    return vocab_track.ravel()[1:]
 
-def get_bin_label(value, bin_size: int, max_val: int, min_val: int) -> int:
+def _get_bin_label(value, bin_size: int, max_val: int, min_val: int) -> int:
    if (value >= max_val):
       return bin_size + 1
    elif (value < min_val):
@@ -96,5 +98,5 @@ def bin(sequence, num_bins: int, max_val: int, min_val: int=0, seqlen: int=None,
    """
    bin_size = (max_val - min_val) / num_bins
    seqlen = len(sequence) if seqlen is None else seqlen
-   binned = (get_bin_label(key(elem), bin_size, max_val, min_val) for elem in sequence)
+   binned = (_get_bin_label(key(elem), bin_size, max_val, min_val) for elem in sequence)
    return np.from_iter(binned, dtype=np.int32, count=seqlen)
