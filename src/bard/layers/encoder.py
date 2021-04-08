@@ -1,6 +1,8 @@
 import tensorflow as tf
 from tensorflow import keras
+
 from .attention import *
+
 
 class Encoder(keras.layers.Layer):
    """

@@ -1,5 +1,6 @@
 import tensorflow as tf
 from tensorflow import keras
+
 from ..layers import *
 
 class MusicTransformer(keras.Model):
