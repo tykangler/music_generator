@@ -1,3 +1,3 @@
-from . import generator, layers, midi, train
+from . import layers, midi, etl, model, predict, train, utils
 
-__all__ = ['generator', 'layers', 'midi', 'train']
+__all__ = ['layers', 'midi', 'etl', 'model', 'predict', 'train', 'utils']

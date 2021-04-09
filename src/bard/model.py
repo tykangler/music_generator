@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow import keras
 
-from ..layers import *
+from .layers import *
 
 class MusicTransformer(keras.Model):
    def __init__(self, vocab_size, embed_dim, layers, heads, 

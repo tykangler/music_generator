@@ -4,7 +4,7 @@ import os
 from tensorflow import keras
 
 from .generator.model import MusicTransformer
-from .train import *
+from .layers import learning, loss, metric
 
 def load_config(config_dir='../../'):
    config_dir = os.path.abspath(config_dir)
