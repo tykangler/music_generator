@@ -3,7 +3,7 @@ import os
 
 from tensorflow import keras
 
-from .generator.model import MusicTransformer
+from .model import MusicTransformer
 from .layers import learning, loss, metric
 
 def load_config(config_dir='../../'):

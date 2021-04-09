@@ -5,7 +5,7 @@ from tensorflow import keras
 
 from bard.midi.raw import Preprocessor
 from bard.midi.tokenizer import MidiTokenizer
-from bard.midi.dataset import build_dataset
+from bard.etl import build_dataset
 
 MAX_VELOCITY = 128
 MIN_VELOCITY = 1
