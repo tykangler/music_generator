@@ -15,36 +15,6 @@ def get_epoch(complete_name: str, composers_json: list):
       return result[0]['epoch']
    return None
 
-def get_ms_per_beat(track):
-   DEFAULT_VALUE = 500_000
-   for x in track:
-      if x.is_meta and x.type == 'set_tempo':
-         return x.tempo
-   return DEFAULT_VALUE
-
-def _scale_exp(x, scale_down=500):
-   "computes `e^(x / scale_down)`"
-   return np.exp(x / scale_down)
-
-def get_rest_time(track_rests, rest_resolution, ms_per_beat):
-   """
-   evaluates `exp((MSPT * avg_rest_in_ticks) / 500)` where `MSPT` is microseconds per tick. To convert
-   `beats` to `ticks`, we can divide by rest_resolution, and multiply by ticks_per_beat. 
-
-   params:
-      `track_rests`: a list of all rests in the track
-
-   Some Considerations:
-   ---
-      Initial idea was to use average rest length, however the length of rests in beats doesn't 
-      always reflect speed since the tempo can vary. Decided to convert the length into microseconds
-      to get absolute average rest length of piece.
-   ---
-   """
-   avg_rest_in_beats = np.average([x.beats for x in track_rests]) 
-   avg_rest_in_ms = avg_rest_in_beats * (ms_per_beat / rest_resolution)
-   return _scale_exp(avg_rest_in_ms)
-
 def get_composer(file_path: str, csv_metadata: list):
    """
    returns the name of the composer associated with the piece played at `file_path`
@@ -95,7 +65,6 @@ def build_dataset(data_dir, csv_path, composer_path, inp_split, max_seqlen):
       inp, tar = process_midi_file(absolute_midi_path, inp_split, max_seqlen)
       composer = get_composer(absolute_midi_path, csv_metadata)
       epoch = get_epoch(composer, composer_data)
-      rest_time = get_rest_time()
 
 def clean_csv(csv_metadata):
    """
