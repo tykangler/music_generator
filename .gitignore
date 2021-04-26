@@ -136,3 +136,6 @@ data/maestro-v3.0.0
 data/metadata
 
 src/lab/*.midi
+
+# apikey
+spotify_oauth.txt

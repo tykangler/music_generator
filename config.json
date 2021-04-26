@@ -2,10 +2,11 @@
    "app": {
       "log_dir": "./logs",
       "model_dir": "./models",
-      "data_dir": "./data",
+      "midi_dir": "./data/maestro-v3.0.0",
+      "composers_path": "./data/metadata/composers.json",
       "checkpoint_dir": "./models/ckpts"
    },
-   "midi": {
+   "vocabulary": {
       "notes": 88,
       "velocity_bins": 32,
       "rest_resolution": 32,
