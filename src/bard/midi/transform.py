@@ -49,6 +49,7 @@ def _nearest_mult(val, multiple):
    temp = val + multiple / 2
    return temp - temp % multiple
 
+# export
 def quantize_to_beats(sequence, ticks_per_beat: int, resolution: int, seqlen: int=None) -> np.ndarray:
    """
    takes in an iterable of integer values representing ticks, and snaps to the nearest resolution 
@@ -82,11 +83,12 @@ def _get_bin(value, bin_size: int, max_val: int, min_val: int) -> int:
    else:
       return int((value - min_val) // bin_size) + 1
 
+# export
 def bin_seq(sequence, num_bins: int, max_val: int, min_val: int, seqlen: int=None) -> np.ndarray:
    """
-   takes in an iterable of numbers and assigns an integer label corresponding to the bin it falls
-   in. Values greater than max_val are given a bin label of num_bins + 1, and values below min_val
-   are given bin label 0.
+   takes in an iterable of integeres (typically velocity) and assigns an integer label 
+   corresponding to the bin it falls in. Values greater than max_val are given a bin label of 
+   num_bins + 1, and values below min_val are given bin label 0.
    """
    bin_size = (max_val - min_val) / num_bins
    seqlen = len(sequence) if seqlen is None else seqlen

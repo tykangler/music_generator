@@ -2,31 +2,60 @@ import os
 import glob
 import mido
 import tensorflow as tf
+import numpy as np
 
-# the plan is to add additional features to the model, but I don't know how to 
-# easily differentiate these from noise due to bad data/unstructured data.
+def get_inp_tar_seq(filename, inp_split, inp_maxlen, tar_maxlen, msg_filter):
+   midi_sequence = mido.MidiFile(filename)
+   track = msg_filter(midi_sequence.tracks[1])
 
-# from collections import Counter
-# import pandas as pd
+   inp_len = int(inp_split * len(track))
+   tar_len = len(track) - inp_len
 
-# def split_composer_names(composer_names):
-#    for name in composer_names:
-#       multi_names = name.split(' / ')
-#       yield from multi_names
+   inp_seq, tar_seq = track[:inp_len], track[inp_len:]
+   inp_seq = np.pad(inp_seq, (0, inp_maxlen - inp_len))
+   tar_seq = np.pad(tar_seq, (0, tar_maxlen - tar_len))
+   return inp_seq, tar_seq
 
-# def get_occurences(composer_names):
-#    composer_counter = Counter(split_composer_names(composer_names))
-#    return composer_counter
+def get_split_midi_data(midi_filenames, inp_split, max_seqlen, msg_filter):
+   inputs, targets = [], []
+   inp_maxlen = inp_split * max_seqlen
+   tar_maxlen = max_seqlen - inp_maxlen
 
-# def replace_multi_names(multi_names, counter):
-#    most_common = lambda a, b, counter: a if counter[a] > counter[b] else b
-#    return [most_common(name1, name2, counter) for name1, name2 in multi_names]
+   for filename in midi_filenames:
+      inp_seq, tar_seq = get_inp_tar_seq(filename, inp_split, inp_maxlen, tar_maxlen, msg_filter)
+      inputs.append(inp_seq)
+      targets.append(tar_seq)
 
-def get_split_midi_data(inp_split, max_seqlen):
-   pass
+   return inputs, targets
 
-def build_dataset(midi_dir, max_seqlen, inp_split):
+def _get_dataset_splits(train_size, val_size, test_size):
+   dataset_splits: list[float] = [train_size, val_size, test_size]
+   assert dataset_splits.count(None) <= 1
+   if dataset_splits.count(None) == 0: 
+      assert np.sum(dataset_splits) == 1
+   else:
+      split_sums = np.sum([split for split in dataset_splits if split is not None])
+      idxNone = dataset_splits.index(None)
+      dataset_splits[idxNone] = 1.0 - split_sums
+   return dataset_splits
+
+def build_dataset(midi_dir, *, train_size=None, val_size=None, test_size=None, 
+                  inp_split, max_seqlen, msg_filter):
    """
-   builds the midi dataset and returns a numpy array with shape (batch_size, )
+   builds dataset and returns a 3-tuple of `tf.Dataset` each returning `(input_seq, target_seq)`,
+   representing train, validation, and test portions of the overall dataset.
    """
-   midi_data_folders = glob.glob(f'{midi_dir}/[0-9]*')
+   train_size, val_size, test_size = _get_dataset_splits(train_size, val_size, test_size)
+
+   midi_filenames = np.shuffle(glob.glob(f'{midi_dir}/[0-9]*/*'))
+   train_size = int(train_size * len(midi_filenames))
+   val_size = int(val_size * len(midi_filenames))
+   
+   inputs, targets = get_split_midi_data(midi_filenames, inp_split, max_seqlen, msg_filter)
+   full_dataset = tf.data.Dataset.from_tensor_slices((inputs, targets))
+   train_dataset = full_dataset.take(train_size)
+   val_dataset = full_dataset.skip(train_size)
+   test_dataset = val_dataset.skip(val_size)
+   val_dataset = val_dataset.take(val_size)
+
+   return train_dataset, val_dataset, test_dataset

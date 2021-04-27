@@ -3,8 +3,9 @@
       "log_dir": "./logs",
       "model_dir": "./models",
       "midi_dir": "./data/maestro-v3.0.0",
-      "composers_path": "./data/metadata/composers.json",
-      "checkpoint_dir": "./models/ckpts"
+      "checkpoint_dir": "./models/ckpts",
+      "validation_size": 0.1,
+      "test_size": 0.1
    },
    "vocabulary": {
       "notes": 88,

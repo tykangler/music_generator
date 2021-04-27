@@ -105,7 +105,6 @@ class MusicTransformer(keras.Model):
          y_pred, *weights = self(
                inputs=inputs, 
                target=target_input,
-               # features=??, 
                padding_mask=pad_mask, 
                lookahead_mask=dec_mask, 
                training=True) # (batch, target_seqlen, vocab_size)
@@ -121,7 +120,6 @@ class MusicTransformer(keras.Model):
       y_pred, *weights = self(
          inputs=inputs,
          target=target_input,
-         # features=??
          padding_mask=pad_mask,
          lookahead_mask=dec_mask,
          training=False
