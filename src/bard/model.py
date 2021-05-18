@@ -44,7 +44,7 @@ class MusicTransformer(keras.Model):
       ) # dec_embedding can be shared due to same vocab, but on separate vocabs, use different
       self.linear = keras.layers.Dense(vocab_size, activation=keras.activations.softmax, name="Dense Layer + Softmax")
 
-   def call(self, inputs, targets, features, padding_mask, lookahead_mask, training):
+   def call(self, inputs, targets, padding_mask, lookahead_mask, training):
       """
       params:
          inputs: tensor of shape (batch, seqlen)
@@ -52,7 +52,6 @@ class MusicTransformer(keras.Model):
          padding_mask: tensor with shape equal to or broadcastable to (batch, target_seqlen, seqlen)
          lookahead_mask: tensor with shape equal to or broadcastable to (batch, target_seqlen, seqlen)
          training: boolean representing whether this forward pass is part of training
-         features: tensor of shape (batch, dim) for additional features
       returns:
          result: tensor of shape (batch, target_seqlen, vocab_size)
          enc_weights: encoder weights of shape (batch, )
@@ -72,14 +71,7 @@ class MusicTransformer(keras.Model):
          lookahead_mask=lookahead_mask, 
          training=training)
 
-      if features is None:
-         features = tf.constant([])
-      else:
-         features = features[:, tf.newaxis, :] # (batch, 1, dim)
-         features = tf.tile(features, [1, dec_out.shape[1], 1]) # (batch, dec_out.shape[1], dim)
-      concatenated = keras.layers.concatenate([dec_out, features])
-
-      result = self.linear(concatenated)
+      result = self.linear(dec_out)
       return result, enc_weights, dec_weights, encdec_weights
 
    def _process(self, data):

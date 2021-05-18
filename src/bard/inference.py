@@ -1,5 +1,8 @@
 import collections
+import sys
 import tensorflow as tf
+
+from bard import etl
 
 from bard.layers.masking import create_decoder_mask, create_padding_mask
 
@@ -26,7 +29,6 @@ def predict(model, input_seq: list, end_token: int, start_token: int, max_len: i
       generated_seq, *weights = model(
          inputs=input_seq, 
          targets=output_seq,
-         # features=??,
          padding_mask=input_padding_mask,
          lookahead_mask=decoder_mask,
          training=False) # (batch=1, q_seqlen, vocab_size)
@@ -35,3 +37,9 @@ def predict(model, input_seq: list, end_token: int, start_token: int, max_len: i
       # (batch=1, 1), what if gen label = 0, model should be trained to not gen 0
       output_seq = tf.concat([output_seq, generated_labels], axis=-1)
    return output_seq, AttentionWeights(*weights)
+
+def main(data):
+   
+
+if __name__ == '__main__':
+   main(sys.argv[1:])

@@ -1,21 +1,25 @@
-import os
+# input pipeline steps:
+# 1. dataset of file names
+# 2. map -> mido.MidiFile(filename), decode into vocab (rest_b:{}, note_: ... ), tf.py_function eager
+# 3. map -> split into inp, tar (this can be separate to allow for vectorization, straight split)
+
 import glob
 import mido
 import tensorflow as tf
 import numpy as np
 
-from .midi import transform
+from .midi import transform, tokenizer
 
 RESOLUTION = 16
 MIN_VELOCITY = 1
 MAX_VELOCITY = 128
-NUM_BINS = 32
+NUM_VELOCITY_BINS = 32
 
-TRANSFORMS = [
-   transform.VelocityBinner(min_val=MIN_VELOCITY, max_val=MAX_VELOCITY, num_bins=NUM_BINS),
-   transform.TimeQuantizer(resolution=RESOLUTION),
-   transform.VocabEncoder(resolution=RESOLUTION)
-]
+PAD_TOKEN = 0
+START_TOKEN = 1
+END_TOKEN = 2
+
+PREFETCH_BUFFER_SIZE = 2 # at least 1 for the next train step (1 batch processed per train step)
 
 def _make_callable(transforms):
    """
@@ -29,30 +33,13 @@ def _make_callable(transforms):
       return inputs
    return _callable_delegate
 
-def _get_inp_tar_seq(filename, inp_split, inp_maxlen, tar_maxlen, transforms):
-   midi_sequence = mido.MidiFile(filename)
-   track = transforms(midi_sequence)
+transforms = _make_callable([
+   transform.VelocityBinner(min_val=MIN_VELOCITY, max_val=MAX_VELOCITY, num_bins=NUM_VELOCITY_BINS),
+   transform.TimeQuantizer(resolution=RESOLUTION),
+   transform.Stringify(resolution=RESOLUTION)
+])
 
-   inp_len = int(inp_split * len(track))
-   tar_len = len(track) - inp_len
-
-   inp_seq, tar_seq = track[:inp_len], track[inp_len:]
-   inp_seq = np.pad(inp_seq, (0, inp_maxlen - inp_len))
-   tar_seq = np.pad(tar_seq, (0, tar_maxlen - tar_len))
-   return inp_seq, tar_seq
-
-def _get_split_midi_data(midi_filenames, inp_split, max_seqlen, transforms):
-   inputs, targets = [], []
-   inp_maxlen = inp_split * max_seqlen
-   tar_maxlen = max_seqlen - inp_maxlen
-   transforms = _make_callable(transforms)
-   for filename in midi_filenames:
-      inp_seq, tar_seq = _get_inp_tar_seq(filename, inp_split, inp_maxlen, tar_maxlen, transforms)
-      inputs.append(inp_seq)
-      targets.append(tar_seq)
-   return inputs, targets
-
-def _get_dataset_splits(train_size, val_size, test_size):
+def _get_dataset_splits(train_size: float, val_size: float, test_size: float):
    dataset_splits: list[float] = [train_size, val_size, test_size]
    assert dataset_splits.count(None) <= 1
    if dataset_splits.count(None) == 0: 
@@ -63,43 +50,67 @@ def _get_dataset_splits(train_size, val_size, test_size):
       dataset_splits[idxNone] = 1.0 - split_sums
    return dataset_splits
 
-def load(midi_path, *, train_size=None, val_size=None, test_size=None, inp_split, max_seqlen):
+def _process_raw_midi(filename: tf.Tensor):
+   """
+   processes midi filename at `filename` and returns a tensor with string representations of the
+   midi sequence.
+   """
+   # run eagerly
+   processed = mido.MidiFile(filename.numpy())
+   return tf.constant(transforms(processed), dtype=tf.string)
+
+def _tokenize_and_split(midi_tokenizer: tokenizer.MidiTokenizer, seq: tf.Tensor, 
+                        inp_len: int, tar_len: int):
+   """
+   will tokenize, split to input and target, prepend and append '<start>' and '<end>' tokens 
+   respectively and pad resulting sequence according to the inp_len and tar_len
+   """
+   tokenized = midi_tokenizer.encode(seq)
+   inp, tar = tokenized[:inp_len], tokenized[inp_len:(inp_len + tar_len)]
+   inp = tf.concat([START_TOKEN], inp, [END_TOKEN], axis=-1)
+   tar = tf.concat([START_TOKEN], tar, [END_TOKEN], axis=-1)
+   return inp, tar
+
+def _optimize_dataset(ds: tf.data.Dataset):
+   return ds.cache().prefetch(buffer_size=PREFETCH_BUFFER_SIZE)
+
+def _create_dataset(filenames: list, batch_size: int, inp_len: int, tar_len: int):
+   midi_ds = (tf.data.Dataset
+      .from_tensor_slices(filenames)
+      .map(lambda x: tf.py_function(_process_raw_midi, inp=[x], Tout=tf.string), 
+           num_parallel_calls=tf.data.AUTOTUNE))
+   all_tokens = (token for sequence in midi_ds.as_numpy_iterator() for token in sequence)
+   midi_tokenizer = tokenizer.MidiTokenizer(all_tokens)
+   midi_ds = (midi_ds
+      .map(lambda x: _tokenize_and_split(midi_tokenizer, x, inp_len, tar_len))
+      .padded_batch(batch_size))
+   return _optimize_dataset(midi_ds), midi_tokenizer
+
+def load(midi_path: str, *, 
+         train_size: float, 
+         val_size: float, 
+         test_size: float, 
+         batch_size: int, 
+         inp_len: int, 
+         tar_len: int):
    """
    returns a 3-tuple of `tf.Dataset` each returning `(input_seq, target_seq)`, representing train, 
    validation, and test portions of the overall dataset. `input_seq` represents the `inp_split` 
    portion of each midi sequence in `midi_path`.
-
-   collects all midi files in `midi_path` recursively, and applies 
-   transformations. The size of `input_seq` for each dataset is `inp_split * len(midi sequence)`, 
-   and is padded to `inp_split * max_seqlen`.
-
-   params:
-      midi_path: path to directory containing midi files
-      train_size: float representing portion of overall dataset allocated to training
-      val_size: float representing portion allocated to validation
-      test_size: float representing portion allocated to test
-      inp_split: portion of each midi sequence allocated to the input sequence, the rest is allocated
-         to the target sequence
-      max_seqlen: maximum sequence length of read midi sequence. only messages up to `max_seqlen` 
-         will be considered in input-target split. `inp_split * max_seqlen` is the maximum size of
-         the input sequence, and `1 - (inp_split * max_seqlen)` is the maximum size of the target 
-         sequence.
    """
    # get midi files
-   midi_filenames = np.shuffle(glob.glob(f'{midi_path}/**/*.midi', recursive=True))
+   filenames = tf.random.shuffle(glob.glob(f'{midi_path}/**/*.midi', recursive=True))
 
    # get train, validation, and test sizes
-   train_size, val_size, _ = _get_dataset_splits(train_size, val_size, test_size)
-   train_size = int(train_size * len(midi_filenames))
-   val_size = int(val_size * len(midi_filenames))
+   train_split, val_split, _ = _get_dataset_splits(train_size, val_size, test_size)
+   train_split = int(train_split * len(filenames))
+   val_split = int(val_split * len(filenames))
    
-   # get input and target sequences
-   inputs, targets = _get_split_midi_data(midi_filenames, inp_split, max_seqlen, TRANSFORMS)
+   # split filenames to train, test, split
+   midi_ds, midi_tokenizer = _create_dataset(filenames, batch_size, inp_len, tar_len)
+   train_ds = midi_ds.take(train_split)
+   val_ds = train_ds.skip(train_split)
+   test_ds = val_ds.skip(val_split)
+   val_ds = val_ds.take(val_split)
 
-   # construct datasets
-   full_dataset = tf.data.Dataset.from_tensor_slices((inputs, targets))
-   train_dataset = full_dataset.take(train_size)
-   val_dataset = full_dataset.skip(train_size)
-   test_dataset = val_dataset.skip(val_size)
-   val_dataset = val_dataset.take(val_size)
-   return train_dataset, val_dataset, test_dataset
+   return train_ds, val_ds, test_ds, midi_tokenizer

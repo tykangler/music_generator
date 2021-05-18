@@ -1,19 +1,16 @@
 {
-   "app": {
+   "train": {
       "log_dir": "./logs",
       "model_dir": "./models",
       "midi_dir": "./data/maestro-v3.0.0",
       "checkpoint_dir": "./models/ckpts",
-      "validation_size": 0.1,
-      "test_size": 0.1
-   },
-   "vocabulary": {
-      "notes": 88,
+      "val_size": 0.1,
+      "test_size": 0.1,
       "velocity_bins": 32,
       "rest_resolution": 32,
       "instruments": ["piano"],
-      "max_seqlen": 300000,
-      "inp_split": 0.2
+      "inp_len": 1000,
+      "tar_len": 50000
    },
    "model": {
       "initial_params": {
@@ -49,5 +46,8 @@
             "k": 3
          }
       }
+   },
+   "inference": {
+      
    }
 }

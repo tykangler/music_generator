@@ -1,8 +1,17 @@
 import numpy as np
 
+# tokenizer --
+
+class Tokenizer:
+   """
+   encodes midi vocabulary strings (i.e. `note_p:10_v:2_i:piano`) to unique integers
+   """
+   def __init__(self):
+      pass
+
 # encoder --
 
-class VocabEncoder:
+class Stringify:
    """
    Encodes midi objects to strings in vocabulary. midi objects are converted into two messages:
       * `rest_b:{beats}`
@@ -54,8 +63,9 @@ class VocabEncoder:
       return list(gen_messages(seq))
 
    def __call__(self, inputs):
-      inputs = [msg for msg in inputs if msg.type in self._MESSAGE_REF]
-      return self.encode_midi_to_vocab(inputs)
+      inputs.tracks[1] = [msg for msg in inputs.tracks[1] if msg.type in self._MESSAGE_REF]
+      final =  self.encode_midi_to_vocab(inputs.tracks[1])
+      return final
 
 # quantize --------
 
@@ -95,7 +105,9 @@ class TimeQuantizer:
    def __call__(self, inputs):
       assert hasattr(inputs, 'ticks_per_beat')
       ticks_per_beat = inputs.ticks_per_beat
-      quantized_times = self.quantize_to_beats([msg.time for msg in inputs.tracks[1]], ticks_per_beat)
+      main_track = inputs.tracks[1]
+
+      quantized_times = self.quantize_to_beats([msg.time for i, msg in enumerate(main_track) if i % 2 == 0], ticks_per_beat)
       inputs.tracks[1] = [msg.copy(time=new_time) for msg, new_time in zip(inputs, quantized_times)]
       return inputs
 
