@@ -1,10 +1,12 @@
 import tensorflow as tf
 from tensorflow import keras
 
+from . import underlying_value
+
 class PaddedSparseTopKCategoricalAccuracy(keras.metrics.Metric):
     def __init__(self, k=5, name="padded_sparse_top_k_categorical_accuracy", **kwargs):
         super()._init__(name=name, **kwargs)
-        self.k = k
+        self.k = underlying_value(k, int)
         self.total = self.add_weight('total')
         self.count = self.add_weight('count')
 
@@ -19,3 +21,7 @@ class PaddedSparseTopKCategoricalAccuracy(keras.metrics.Metric):
 
     def result(self):
         return self.total / self.count
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(dict(k=self.k))

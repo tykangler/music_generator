@@ -1,11 +1,12 @@
 {
    "train": {
-      "log_dir": "./logs",
-      "model_dir": "./models",
-      "midi_dir": "./data/maestro-v3.0.0",
-      "checkpoint_dir": "./models/ckpts",
+      "log_path": "./logs/train",
+      "midi_path": "./data/maestro-v3.0.0",
+      "checkpoint_path": "./models/ckpts",
       "val_size": 0.1,
       "test_size": 0.1,
+      "batch_size": 32,
+      "epochs": 100,
       "velocity_bins": 32,
       "rest_resolution": 32,
       "instruments": ["piano"],
@@ -13,8 +14,11 @@
       "tar_len": 50000
    },
    "model": {
+      "name": "music-transformer",
+      "save_path": "./models",
+      "vocab_path": "./models/vocabulary",
       "initial_params": {
-         "model": {
+         "transformer": {
             "embed_dim": 512,
             "layers": 6,
             "key_dim": 512,
@@ -48,6 +52,7 @@
       }
    },
    "inference": {
-      
+      "log_path": "./logs/inference",
+      "max_len": 100
    }
 }

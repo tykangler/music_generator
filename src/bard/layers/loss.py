@@ -1,12 +1,15 @@
 import tensorflow as tf
 from tensorflow import keras
 
+from . import underlying_value
+
 class PaddedSparseCategoricalCrossentropy(keras.losses.SparseCategoricalCrossentropy):
     def __init__(
         self, 
         name="padded_sparse_categorical_cross_entropy", 
         k=5,
         **kwargs):
+        self.k = underlying_value(k, int)
         super().__init__(name=name, k=k, **kwargs)
 
     def _mask_metric_where_padded(self, raw_metric, y_true):
@@ -27,3 +30,8 @@ class PaddedSparseCategoricalCrossentropy(keras.losses.SparseCategoricalCrossent
 
         loss_val = super().call(y_true, y_pred)
         return self._mask_metric_where_padded(loss_val, y_true)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(dict(k=self.k))
+        return config

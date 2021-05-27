@@ -1,10 +1,17 @@
 import collections
 import sys
 import tensorflow as tf
+from tensorflow import keras
+import mido
+import os
+import json
 
-from bard import etl
-
+from bard.midi import stringify
+from bard.midi import tokenizer
 from bard.layers.masking import create_decoder_mask, create_padding_mask
+from bard import constants
+
+PROJECT_ROOT = os.path.abspath("../..")
 
 # predict --------------
 
@@ -20,6 +27,7 @@ def predict(model, input_seq: list, end_token: int, start_token: int, max_len: i
       max_len: maximum length of the continued sequence
    """
    output_seq = tf.constant([start_token])[tf.newaxis, :] # (batch=1, q_seqlen=1)
+   input_seq = tf.expand_dims(input_seq, axis=0) # (batch=1, seqlen)
    input_padding_mask = create_padding_mask(input_seq)[:, tf.newaxis, :] # (batch=1, q_seqlen=1 (broadcast), seqlen)
    AttentionWeights = collections.namedtuple('AttentionWeights', 
       ['enc_weights', 'dec_weights', 'encdec_weights'])
@@ -38,8 +46,47 @@ def predict(model, input_seq: list, end_token: int, start_token: int, max_len: i
       output_seq = tf.concat([output_seq, generated_labels], axis=-1)
    return output_seq, AttentionWeights(*weights)
 
-def main(data):
-   
+def parse_midi(stream):
+   for time, msg in stream:
+      msg = mido.parse(msg)
+      msg.time = time
+      yield msg
+
+def run(seq, args=None):
+   """
+   expects `seq` to be a stream of midi events in form: [(time, [status_byte, data_bytes+])*]
+   """
+   # load config
+   with open(constants.config_path) as config_file:
+      config = json.load(config_file)
+   model_config = config["model"]
+   inference_config = config["inference"]
+
+   # load model
+   model_path = os.path.join(
+      constants.project_root, model_config['save_path'], model_config['name'])
+   model = keras.models.load_model(model_path)
+
+   # transform input seq
+   parsed = parse_midi(seq)
+   vocab_seq = stringify.encode(parsed)
+   midi_tokenizer = tokenizer.MidiTokenizer.load(
+      os.path.join(constants.project_root, model_config['vocab_path']))
+   input_seq = midi_tokenizer.encode(vocab_seq)
+
+
+   output_seq, attention = predict(
+      model=model,
+      input_seq=input_seq,
+      end_token=constants.end_token,
+      start_token=constants.start_token,
+      max_len=inference_config['max_len']
+   )
+
+   return midi_tokenizer.decode(output_seq), attention
 
 if __name__ == '__main__':
-   main(sys.argv[1:])
+   run(sys.argv[1:])
+
+
+# fix filenames, prefix with project root

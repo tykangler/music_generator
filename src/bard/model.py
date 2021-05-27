@@ -3,20 +3,20 @@ from tensorflow import keras
 
 from .layers import *
 
-class MusicTransformer(keras.Model):
+class SingleVocabTransformer(keras.Model):
    def __init__(self, vocab_size, embed_dim, layers, heads, 
                key_dim, value_dim, ffnn_dim, max_relative_pos, dropout_rate, 
                kernel_constraint=None, **kwargs):
       super().__init__(**kwargs)
-      self.vocab_size = vocab_size
-      self.embed_dim = embed_dim
-      self.layers = layers
-      self.heads = heads
-      self.key_dim = key_dim
-      self.value_dim = value_dim
-      self.ffnn_dim = ffnn_dim
-      self.max_relative_pos = max_relative_pos
-      self.dropout_rate = dropout_rate
+      self.vocab_size = underlying_value(vocab_size, int)
+      self.embed_dim = underlying_value(embed_dim, int)
+      self.layers = underlying_value(layers, int)
+      self.heads = underlying_value(heads, int)
+      self.key_dim = underlying_value(key_dim, int)
+      self.value_dim = underlying_value(value_dim, int)
+      self.ffnn_dim = underlying_value(ffnn_dim, int)
+      self.max_relative_pos = underlying_value(max_relative_pos, int)
+      self.dropout_rate = underlying_value(dropout_rate, float)
       self.kernel_constraint = keras.constraints.get(kernel_constraint)
       self.encoders = encoder.EncoderStack(
          units=layers, 

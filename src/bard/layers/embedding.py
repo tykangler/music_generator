@@ -2,6 +2,8 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 
+from . import underlying_value
+
 OMEGA_SCALE = 10000
 
 def omega(k, dims):
@@ -31,8 +33,8 @@ class Embedding(keras.layers.Layer):
    """
    def __init__(self, vocab_size, output_dim, dropout_rate=0.2, embeddings_constraint=None, **kwargs):
       super().__init__(**kwargs)
-      self.vocab_size = vocab_size
-      self.output_dim = output_dim
+      self.vocab_size = underlying_value(vocab_size, int)
+      self.output_dim = underlying_value(output_dim, int)
       self.embeddings_constraint = keras.constraints.get(embeddings_constraint)
       self.token_embedding = keras.layers.Embedding(
          input_dim=vocab_size, 

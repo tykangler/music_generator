@@ -4,6 +4,7 @@ from tensorflow import keras
 
 from .attention import *
 
+from . import underlying_value
 
 class Decoder(keras.layers.Layer):
    """
@@ -14,10 +15,10 @@ class Decoder(keras.layers.Layer):
    """
    def __init__(self, heads, max_relative_pos, ffnn_dim, dropout_rate=0.2, kernel_constraint=None, **kwargs):
       super().__init__(**kwargs)
-      self.heads = heads
-      self.max_relative_pos = max_relative_pos
-      self.ffnn_dim = ffnn_dim
-      self.dropout_rate = dropout_rate
+      self.heads = underlying_value(heads, int)
+      self.max_relative_pos = underlying_value(max_relative_pos, int)
+      self.ffnn_dim = underlying_value(ffnn_dim, int)
+      self.dropout_rate = underlying_value(dropout_rate, float)
       self.kernel_constraint = keras.constraints.get(kernel_constraint)
       self.attn = dict(
          # use either specified key_dim (recommended key_dim < embed_dim) or just keep same size
@@ -98,12 +99,12 @@ class DecoderStack(keras.layers.Layer):
    """
    def __init__(self, units, heads, ffnn_dim, max_relative_pos, dropout_rate=0.2, kernel_constraint=None, **kwargs):
       super().__init__(**kwargs)
-      self.units = units
-      self.heads = heads
-      self.ffnn_dim = ffnn_dim
-      self.max_relative_pos = max_relative_pos
-      self.dropout_rate = dropout_rate
-      self.kernel_constraint = kernel_constraint
+      self.units = underlying_value(units, int)
+      self.heads = underlying_value(heads, int)
+      self.ffnn_dim = underlying_value(ffnn_dim, int)
+      self.max_relative_pos = underlying_value(max_relative_pos, int)
+      self.dropout_rate = underlying_value(dropout_rate, float)
+      self.kernel_constraint = keras.constraints.get(kernel_constraint)
       self.decoders = [Decoder(self.heads, self.ffnn_dim, self.max_relative_pos, self.dropout_rate, self.kernel_constraint)
                         for i in range(self.units)]
 

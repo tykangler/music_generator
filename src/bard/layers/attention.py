@@ -2,6 +2,8 @@ import tensorflow as tf
 from tensorflow import keras
 import numpy as np
 
+from . import underlying_value
+
 class MultiHeadRelativeAttention(keras.layers.Layer):
    """
    An implementation of the multi head attention mechanism, with relative position representations. 
@@ -19,10 +21,10 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       # query and key will have the same dimensions. value may or may not have the same dimensions. if value 
       # not specified, then value = key
       # query may have different seqlen
-      self.heads = heads
-      self.key_dim = key_dim
-      self.value_dim = value_dim
-      self.max_relative_pos = max_relative_pos
+      self.heads = underlying_value(heads, int) 
+      self.key_dim = underlying_value(key_dim, int)
+      self.value_dim = underlying_value(value_dim, int)
+      self.max_relative_pos = underlying_value(max_relative_pos, int)
       self.kernel_constraint = keras.constraints.get(kernel_constraint)
 
    def build(self, input_shape):

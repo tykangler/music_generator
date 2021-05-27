@@ -1,17 +1,19 @@
 import tensorflow as tf
 from collections import Counter
-from itertools import chain
 
 class MidiTokenizer:
-   def __init__(self, vocabulary):
-      counter = Counter(vocabulary) 
-      vocabulary = [token for token, _ in counter.most_common()]
+   def __init__(self, vocabulary, sort=True):
+      if sort:
+         counter = Counter(vocabulary) 
+         self.vocabulary = [token for token, _ in counter.most_common()] 
+      else:
+         self.vocabulary = vocabulary
       # '<pad>': 0
       # '<start>': 1
       # '<end>': 2
-      integer_ids = range(3, len(vocabulary) + 3)
-      self.id_lookup = self._initialize_lookup(vocabulary, integer_ids)
-      self.vocab_lookup = self._initialize_lookup(integer_ids, vocabulary)
+      integer_ids = range(3, len(self.vocabulary) + 3)
+      self.id_lookup = self._initialize_lookup(self.vocabulary, integer_ids)
+      self.vocab_lookup = self._initialize_lookup(integer_ids, self.vocabulary)
 
    def _initialize_lookup(self, keys, values):
       kv_tensor_init = tf.lookup.KeyValueTensorInitializer(
@@ -27,3 +29,13 @@ class MidiTokenizer:
 
    def vocab_size(self):
       return self.vocab_lookup.size()
+
+   def save(self, path):
+      with open(path, "w+") as save_file:
+         save_file.write("\n".join(self.vocabulary))
+
+   @classmethod
+   def load(cls, path):
+      with open(path) as load_file:
+         vocabulary = load_file.read().split("\n")
+      return cls(vocabulary, sort=False)
