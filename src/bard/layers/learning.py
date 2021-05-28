@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow import keras
 
-from . import underlying_value
+from .utils import underlying_value
 
 class LearningSchedule(keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, dim, warmup_steps=4000):

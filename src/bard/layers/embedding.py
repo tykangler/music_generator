@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 
-from . import underlying_value
+from .utils import underlying_value
 
 OMEGA_SCALE = 10000
 

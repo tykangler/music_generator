@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow import keras
 
-from . import underlying_value
+from .utils import underlying_value
 
 class PaddedSparseCategoricalCrossentropy(keras.losses.SparseCategoricalCrossentropy):
     def __init__(

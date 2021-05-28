@@ -4,7 +4,7 @@ from tensorflow import keras
 
 from .attention import *
 
-from . import underlying_value
+from .utils import underlying_value
 
 class Decoder(keras.layers.Layer):
    """

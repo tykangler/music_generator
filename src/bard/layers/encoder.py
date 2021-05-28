@@ -3,6 +3,7 @@ from tensorflow import keras
 
 from .attention import *
 
+from .utils import underlying_value
 
 class Encoder(keras.layers.Layer):
    """

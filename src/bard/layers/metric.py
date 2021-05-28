@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow import keras
 
-from . import underlying_value
+from .utils import underlying_value
 
 class PaddedSparseTopKCategoricalAccuracy(keras.metrics.Metric):
     def __init__(self, k=5, name="padded_sparse_top_k_categorical_accuracy", **kwargs):

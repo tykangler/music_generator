@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow import keras
 import numpy as np
 
-from . import underlying_value
+from .utils import underlying_value
 
 class MultiHeadRelativeAttention(keras.layers.Layer):
    """
@@ -28,7 +28,7 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       self.kernel_constraint = keras.constraints.get(kernel_constraint)
 
    def build(self, input_shape):
-      batch, query_seqlen, dim_input = input_shape
+      dim_input = input_shape[-1]
 
       # dims calculation
       qk_dim = self.key_dim or dim_input
@@ -44,7 +44,6 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
          num_rprs, self.head_qk_dim, embeddings_constraint=self.kernel_constraint, name="relative embedding (key)")
       self.rpr_value_embedding = keras.layers.Embedding(
          num_rprs, self.head_v_dim, embeddings_constraint=self.kernel_constraint, name="relative embedding (value)")
-      self.rpr_lookup = self._generate_rpr_lookup(query_seqlen, self.max_relative_pos)
 
       # project to heads after applying weights/dense
       self.weights_q = keras.layers.Dense(
@@ -81,8 +80,8 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       """
       if key is not None:
          key = value
-      batch_size = tf.shape(query)[0] # or tf.shape(key)[0]
-      dim_input = tf.shape(query)[-1]
+      batch_size, query_seqlen, dim_input = tf.shape(query)
+      rpr_lookup = self._generate_rpr_lookup(query_seqlen, self.max_relative_pos)
 
       # forward pass through weights and split (after for efficiency)
       query = self._project_to_heads(self.weights_q(query))
@@ -90,11 +89,11 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       value = self._project_to_heads(self.weights_v(value))   
 
       # compute attention scores and grab weights
-      attn_scores, attn_weights = self._compute_attn(query, value, key, mask)
+      attn_scores, attn_weights = self._compute_attn(query, value, key, rpr_lookup, mask)
 
       # transpose and reshape to concat scores for each head in each batch
-      attn_scores = tf.transpose(attn_scores, perm=[0, 2, 1, 3]) # (batch_size, seqlen, heads, head_dim)
-      concat_attn = tf.reshape(attn_scores, (batch_size, -1, dim_input)) # (batch_size, seqlen, dim)
+      attn_scores = tf.transpose(attn_scores, perm=[0, 2, 1, 3]) # (batch_size, q_seqlen, heads, head_dim)
+      concat_attn = tf.reshape(attn_scores, (batch_size, -1, dim_input)) # (batch_size, q_seqlen, dim)
 
       out = self.concat_head_weights(concat_attn)
       return out, attn_weights
@@ -173,7 +172,7 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       x = tf.reshape(x, (x.shape[0], -1, self.heads, x.shape[-1])) # (q_seqlen, batch, heads, q_seqlen)
       return tf.transpose(x, perm=[1, 2, 0, 3])
 
-   def _compute_attn(self, query, value, key, mask):
+   def _compute_attn(self, query, value, key, rpr_lookup, mask):
       """
 
       :params:
@@ -192,7 +191,7 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       key_dims = tf.shape(key)[-1]
 
       alpha = tf.matmul(query, key, transpose_b=True) 
-      rpr_key_embedding = self.rpr_key_embedding(self.rpr_lookup)
+      rpr_key_embedding = self.rpr_key_embedding(rpr_lookup)
       alpha += self._compute_relative(query, rpr_key_embedding, transpose_embeddings=True)
       alpha /= tf.sqrt(tf.cast(key_dims, tf.float32))
 
@@ -200,7 +199,7 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
          alpha += mask[:, tf.newaxis, :, :] * -np.inf
       attn_weights = tf.nn.softmax(alpha) # default last axis (key_dims)
       attn_scores = tf.matmul(attn_weights, value)
-      rpr_value_embedding = self.rpr_value_embedding(self.rpr_lookup)
+      rpr_value_embedding = self.rpr_value_embedding(rpr_lookup)
       attn_scores += self._compute_relative(attn_weights, rpr_value_embedding, transpose_embeddings=False)
 
       return attn_scores, attn_weights
