@@ -15,8 +15,11 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       key_dim: the dimensions of the weighted query and key matrices
       value_dim: the dimensions of the weighted value matrices
       kernel_constraint: weight constraints applied to Q, K, V weights
+      use_relative_embed: whether relative positional embedding will be utilized. This should
+         only be True when self attention is used. If True, then max_relative_pos has no effect.
    """
-   def __init__(self, heads, max_relative_pos, key_dim=None, value_dim=None, kernel_constraint=None, **kwargs):
+   def __init__(self, heads, max_relative_pos, key_dim=None, value_dim=None, 
+      kernel_constraint=None, use_relative_embed=True, **kwargs):
       super().__init__(**kwargs)
       # query and key will have the same dimensions. value may or may not have the same dimensions. if value 
       # not specified, then value = key
@@ -26,24 +29,26 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       self.value_dim = underlying_value(value_dim, int)
       self.max_relative_pos = underlying_value(max_relative_pos, int)
       self.kernel_constraint = keras.constraints.get(kernel_constraint)
+      self.use_relative_embed = underlying_value(use_relative_embed, bool)
 
    def build(self, input_shape):
       dim_input = input_shape[-1]
 
       # dims calculation
       qk_dim = self.key_dim or dim_input
-      v_dim = self.value_dim or dim_input
+      v_dim = self.value_dim or dim_input # should actually have more paramters for qk and v to be comprehensive
       assert qk_dim % self.heads == 0, """q, k dims must be a multiple of heads"""
       assert v_dim % self.heads == 0, """v dims must be a multiple of heads"""
       self.head_qk_dim = qk_dim // self.heads
       self.head_v_dim = v_dim // self.heads
 
       # relative positional encoding
-      num_rprs = self.max_relative_pos * 2 + 1
-      self.rpr_key_embedding = keras.layers.Embedding(
-         num_rprs, self.head_qk_dim, embeddings_constraint=self.kernel_constraint, name="relative embedding (key)")
-      self.rpr_value_embedding = keras.layers.Embedding(
-         num_rprs, self.head_v_dim, embeddings_constraint=self.kernel_constraint, name="relative embedding (value)")
+      if self.use_relative_embed:
+         num_rprs = self.max_relative_pos * 2 + 1
+         self.rpr_key_embedding = keras.layers.Embedding(
+            num_rprs, self.head_qk_dim, embeddings_constraint=self.kernel_constraint, name="relative embedding (key)")
+         self.rpr_value_embedding = keras.layers.Embedding(
+            num_rprs, self.head_v_dim, embeddings_constraint=self.kernel_constraint, name="relative embedding (value)")
 
       # project to heads after applying weights/dense
       self.weights_q = keras.layers.Dense(
@@ -60,7 +65,7 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       super().build(input_shape)
 
    def _generate_rpr_lookup(self, query_seqlen, max_relative_pos):
-      x = np.arange(query_seqlen)
+      x = np.arange(query_seqlen) # symmetrical, use only for self attention
       x = tf.expand_dims(x, axis=0) - tf.expand_dims(x, axis=1)
       x = tf.clip_by_value(x, -max_relative_pos, max_relative_pos)
       return x + max_relative_pos
@@ -78,10 +83,9 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
          attn_weights: Attention weights with shape (batch, heads, q_seqlen, seqlen) 
                applied to the value tensor for each head
       """
-      if key is not None:
+      if key is None:
          key = value
-      batch_size, query_seqlen, dim_input = tf.shape(query)
-      rpr_lookup = self._generate_rpr_lookup(query_seqlen, self.max_relative_pos)
+      batch_size, _, dim_input = tf.shape(query)
 
       # forward pass through weights and split (after for efficiency)
       query = self._project_to_heads(self.weights_q(query))
@@ -89,7 +93,7 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       value = self._project_to_heads(self.weights_v(value))   
 
       # compute attention scores and grab weights
-      attn_scores, attn_weights = self._compute_attn(query, value, key, rpr_lookup, mask)
+      attn_scores, attn_weights = self._compute_attn(query, value, key, mask)
 
       # transpose and reshape to concat scores for each head in each batch
       attn_scores = tf.transpose(attn_scores, perm=[0, 2, 1, 3]) # (batch_size, q_seqlen, heads, head_dim)
@@ -172,7 +176,7 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       x = tf.reshape(x, (x.shape[0], -1, self.heads, x.shape[-1])) # (q_seqlen, batch, heads, q_seqlen)
       return tf.transpose(x, perm=[1, 2, 0, 3])
 
-   def _compute_attn(self, query, value, key, rpr_lookup, mask):
+   def _compute_attn(self, query, value, key, mask):
       """
 
       :params:
@@ -189,18 +193,24 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
       # technically, value may have a different dim, resulting in an attention shape of (..., seqlen, dim_v)
       # query and key must have the same dimensions
       key_dims = tf.shape(key)[-1]
+      query_seqlen = tf.shape(query)[2]
+
+      if self.use_relative_embed:
+         rpr_lookup = self._generate_rpr_lookup(query_seqlen, self.max_relative_pos)
+         rpr_key_embedding = self.rpr_key_embedding(rpr_lookup)
+         rpr_value_embedding = self.rpr_value_embedding(rpr_lookup)
 
       alpha = tf.matmul(query, key, transpose_b=True) 
-      rpr_key_embedding = self.rpr_key_embedding(rpr_lookup)
-      alpha += self._compute_relative(query, rpr_key_embedding, transpose_embeddings=True)
+      if self.use_relative_embed:
+         alpha += self._compute_relative(query, rpr_key_embedding, transpose_embeddings=True)
       alpha /= tf.sqrt(tf.cast(key_dims, tf.float32))
 
       if mask:
          alpha += mask[:, tf.newaxis, :, :] * -np.inf
       attn_weights = tf.nn.softmax(alpha) # default last axis (key_dims)
       attn_scores = tf.matmul(attn_weights, value)
-      rpr_value_embedding = self.rpr_value_embedding(rpr_lookup)
-      attn_scores += self._compute_relative(attn_weights, rpr_value_embedding, transpose_embeddings=False)
+      if self.use_relative_embed:
+         attn_scores += self._compute_relative(attn_weights, rpr_value_embedding, transpose_embeddings=False)
 
       return attn_scores, attn_weights
 
@@ -215,6 +225,7 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
          max_relative_pos=self.max_relative_pos,
          key_dim=self.key_dim,
          value_dim=self.value_dim,
-         kernel_constraint=keras.constraints.serialize(self.kernel_constraint)
+         kernel_constraint=keras.constraints.serialize(self.kernel_constraint),
+         use_relative_embed=self.use_relative_embed
       ))
       return config
