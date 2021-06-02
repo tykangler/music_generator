@@ -75,7 +75,7 @@ class SingleVocabTransformer(keras.Model):
       return result, enc_weights, dec_weights, encdec_weights
 
    def _process(self, data):
-      inputs, target = data # ([batch, seqlen], [batch, seqlen + 2])
+      inputs, target = data # ([batch, seqlen], [batch, seqlen])
 
       # ['start', ...], [..., 'end']
       target_input, target_output = target[:, :-1], target[:, 1:]

@@ -25,7 +25,7 @@ class Decoder(keras.layers.Layer):
          layer=MultiHeadRelativeAttention(
                heads=heads, 
                max_relative_pos=max_relative_pos,
-               name="Decoder Relative Attention"),
+               name="Decoder Relative Self Attention"),
          dropout=keras.layers.Dropout(rate=dropout_rate),
          norm=keras.layers.LayerNormalization()
       )
@@ -33,7 +33,8 @@ class Decoder(keras.layers.Layer):
          layer=MultiHeadRelativeAttention(
                heads=heads, 
                max_relative_pos=max_relative_pos, 
-               name="Encoder-Decoder Relative Attention"),
+               name="Encoder-Decoder Cross Attention",
+               use_relative_embed=False),
          dropout=keras.layers.Dropout(rate=dropout_rate),
          norm=keras.layers.LayerNormalization()
       )
@@ -59,20 +60,23 @@ class Decoder(keras.layers.Layer):
          padding_mask: tensor of shape (batch, q_seqlen, seqlen) used in the cross attention step 
                to mask encoder padding
          lookahead_mask: tensor of shape (batch, q_seqlen, q_seqlen) used in the self attention step to 
-               mask future positions, as well as decoder padding
+               mask future positions, as well as decoder padding.
          training: boolean representing whether this is a train step
       """
       # when q, k, and v are same, this is self attention
       # otherwise it is performing cross attention
       attn_out, attn_weights = self.attn['layer'](query=inputs, key=inputs, value=inputs, mask=lookahead_mask)
+      # (batch, q_seqlen, dim), (batch, heads, q_seqlen, seqlen)
       attn_out = self.attn['dropout'](attn_out, training=training)
       attn_out = self.attn['norm'](inputs + attn_out)
 
-      encdec_attn_out, encdec_attn_weights = self.encdec['layer'](query=attn_out, key=enc_kv, value=enc_kv, mask=padding_mask)
-      encdec_attn_out = self.encdec['dropout'](encdec_attn_out, training=training)
-      encdec_attn_out = self.encdec['norm'](attn_out + encdec_attn_out)
+      encdec_attn_out, encdec_attn_weights = self.encdec_attn['layer'](query=attn_out, key=enc_kv, value=enc_kv, mask=padding_mask)
+      # (batch, q_seqlen, dim), (batch, heads, q_seqlen, seqlen)
+      encdec_attn_out = self.encdec_attn['dropout'](encdec_attn_out, training=training)
+      encdec_attn_out = self.encdec_attn['norm'](attn_out + encdec_attn_out)
 
       ffnn_out = self.ffnn['layer'](encdec_attn_out)
+      # (batch, q_seqlen, embed_dim=dim)
       ffnn_out = self.ffnn['dropout'](ffnn_out, training=training)
       ffnn_out = self.ffnn['norm'](ffnn_out + encdec_attn_out)
       return ffnn_out, attn_weights, encdec_attn_weights
@@ -106,7 +110,7 @@ class DecoderStack(keras.layers.Layer):
       self.dropout_rate = underlying_value(dropout_rate, float)
       self.kernel_constraint = keras.constraints.get(kernel_constraint)
       self.decoders = [Decoder(self.heads, self.ffnn_dim, self.max_relative_pos, self.dropout_rate, self.kernel_constraint)
-                        for i in range(self.units)]
+                        for _ in range(self.units)]
 
    def call(self, inputs, enc_kv, padding_mask, lookahead_mask, training):
       """

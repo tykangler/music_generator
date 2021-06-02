@@ -76,7 +76,7 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
          query: tensor of shape (batch, q_seqlen, dim)
          key: tensor of shape (batch, seqlen, dim)
          value: tensor of shape (batch, seqlen, dim)
-         mask: tensor with shape equal to or broadcastable to (batch, q_seqlen, seqlen) to be applied to each attn head
+         mask: tensor with shape equal to (batch, q_seqlen, seqlen) to be applied to each attn head
       :returns:
          attn_scores: Attention scores with shape (batch, q_seqlen, dim), i.e., the attention scores
                for each head in each batch
@@ -183,7 +183,7 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
          query: tensors of shape (batch, heads, q_seqlen, head_qk_dim)
          value: tensors of shape (batch, heads, seqlen, head_v_dim)
          key: tensors of shape (batch, heads, seqlen, head_qk_dim)
-         mask: tensor with shape equal to or broadcastable to (batch, q_seqlen, seqlen) 
+         mask: tensor with shape equal to (batch, q_seqlen, seqlen) 
                applied after first matmul and just prior to softmax
       :returns:
          attn_scores: Attention scores with shape (..., seqlen, dim), i.e., the attention scores
@@ -205,8 +205,8 @@ class MultiHeadRelativeAttention(keras.layers.Layer):
          alpha += self._compute_relative(query, rpr_key_embedding, transpose_embeddings=True)
       alpha /= tf.sqrt(tf.cast(key_dims, tf.float32))
 
-      if mask:
-         alpha += mask[:, tf.newaxis, :, :] * -np.inf
+      if mask is not None:
+         alpha += (tf.cast(mask[:, tf.newaxis, :, :], tf.float32) * -1e9) # -np.inf actually causes nan when mult by 0
       attn_weights = tf.nn.softmax(alpha) # default last axis (key_dims)
       attn_scores = tf.matmul(attn_weights, value)
       if self.use_relative_embed:
