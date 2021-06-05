@@ -84,17 +84,17 @@ class Decoder(keras.layers.Layer):
    def get_config(self):
       config = super().get_config()
       config.update(dict(
-         embed_dim=self.embed_dim,
+         max_relative_pos=self.max_relative_pos,
          heads=self.heads,
          ffnn_dim=self.ffnn_dim,
          dropout_rate=self.dropout_rate,
-         kernel_constraint=self.kernel_constraint.get_config()
+         kernel_constraint=keras.constraints.serialize(self.kernel_constraint)
       ))
       return config
 
    @classmethod
-   def from_config(cls, **kwargs):
-      return cls(**kwargs)
+   def from_config(cls, config):
+      return cls(**config)
 
 class DecoderStack(keras.layers.Layer):
    """
@@ -133,7 +133,7 @@ class DecoderStack(keras.layers.Layer):
       config = super().get_config()
       config.update(dict(
          units=self.units,
-         embed_dim=self.embed_dim,
+         max_relative_pos=self.max_relative_pos,
          heads=self.heads,
          ffnn_dim=self.ffnn_dim,
          dropout_rate=self.dropout_rate,

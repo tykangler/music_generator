@@ -4,10 +4,25 @@ from tensorflow import keras
 
 from .utils import underlying_value
 
+# consider using this for positional embeddings to interleave tensors by even and odd indices
+# example usage:
+#     complete_positional_embeddings = alternate_by_even_odd(
+#        np.sin(embeddings[:, 0::2]), np.cos(embeddings[:, 1::2]))
+def alternate_by_even_odd(even_index_tensor, odd_index_tensor):
+   assert tf.reduce_all(tf.shape(even_index_tensor) == tf.shape(odd_index_tensor))
+   concat = tf.concat([even_index_tensor[..., tf.newaxis], 
+                        odd_index_tensor[..., tf.newaxis]], axis=-1)
+   # even = [1, 2, 3], odd = [4, 5, 6]
+   # even = [[1], [2], [3]], odd = [[4], [5], [6]]
+   # concat = [[1, 4],
+   #           [2, 5],
+   #           [3, 6]]
+   return tf.reshape(concat, shape=[-1, tf.shape(even_index_tensor)[-1] * 2]) 
+
 OMEGA_SCALE = 10000
 
 def omega(k, dims):
-   return 1 / (np.power(OMEGA_SCALE, 2 * k / np.float64(dims)))
+   return 1 / (np.power(OMEGA_SCALE, 2 * k / np.float32(dims)))
 
 def positional_embeddings(max_pos, dims):
    """
@@ -15,7 +30,7 @@ def positional_embeddings(max_pos, dims):
    and compressed into `dims` dimensions
    """
    positions = np.arange(max_pos)[:, np.newaxis]
-   embeddings = positions * omega(np.arange(dims, dtype=int) // 2, dims)
+   embeddings = positions * omega(np.arange(dims) // 2, dims)
    embeddings[:, 0::2] = np.sin(embeddings[:, 0::2])
    embeddings[:, 1::2] = np.cos(embeddings[:, 1::2])
    return embeddings
@@ -56,14 +71,14 @@ class Embedding(keras.layers.Layer):
       returns:
          tensor of shape (batch, seqlen, output_dim)
       """
-      max_seqlen_in_batch = np.shape(inputs)[-1]
+      seqlen = tf.shape(inputs)[-1]
       embed_out = self.token_embedding(inputs)
 
-      # embed_out 3d (batch_size, max_seqlen_in_batch, output_dim) 
-      embed_out += self.positional_embedding[:max_seqlen_in_batch]
+      # embed_out 3d (batch_size, seqlen, output_dim) 
+      embed_out += self.positional_embedding[:seqlen]
 
-      # positional_embedding 2d (seqlen, output_dim) compressed to (max_seqlen_in_batch, output_dim)
-      # then broadcasted to (batch_size, max_seqlen_in_batch, output_dim), summed with embed_out
+      # positional_embedding 2d (seqlen, output_dim) compressed to (seqlen, output_dim)
+      # then broadcasted to (batch_size, seqlen, output_dim), summed with embed_out
       embed_out = self.dropout(embed_out, training=training)
 
       return embed_out

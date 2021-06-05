@@ -60,6 +60,12 @@ def test_decoder_weights_equal_mask():
    zero_padding_weights = tf.cast(tf.equal(cross_attn_weights, 0), tf.int32)
    assert bool(tf.reduce_all(tf.equal(zero_padding_weights, padding_mask)))
 
+def test_decoder_config_is_reusable():
+   layer = create_decoder()
+   config = layer.get_config()
+   new_layer = decoder.Decoder.from_config(config)
+   assert config == new_layer.get_config()
+
 def test_decoder_stack_creates_correct_shape():
    stack = create_stack()
    inputs = tf.random.uniform([2, 4, 16])
@@ -70,3 +76,9 @@ def test_decoder_stack_creates_correct_shape():
    for self_weights, cross_weights in attn_weights.values():
       assert all(tf.shape(self_weights) == [2, NUM_HEADS, 4, 4])
       assert all(tf.shape(cross_weights) == [2, NUM_HEADS, 4, 9])
+
+def test_decoder_stack_config_is_reusable():
+   stack = create_stack()
+   config = stack.get_config()
+   new_stack = decoder.DecoderStack.from_config(config)
+   assert config == new_stack.get_config()
