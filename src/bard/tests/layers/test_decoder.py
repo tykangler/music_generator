@@ -1,5 +1,5 @@
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 from tensorflow import keras
@@ -31,7 +31,7 @@ def test_forward_pass_creates_correct_shape():
    # (batch=2, q_seqlen=4, qk_dim=16)
    inputs = tf.random.uniform([2, 4, 16])
    enc_kv = tf.random.uniform([2, 9, 16])
-   out, self_attn_weights, cross_attn_weights = layer(inputs, enc_kv, None, None, True)
+   out, self_attn_weights, cross_attn_weights = layer(inputs, enc_kv, None, None, False)
    assert all(tf.shape(out) == tf.shape(inputs))
    assert all(tf.shape(self_attn_weights) == [2, NUM_HEADS, 4, 4])
    assert all(tf.shape(cross_attn_weights) == [2, NUM_HEADS, 4, 9])
@@ -54,7 +54,7 @@ def test_decoder_weights_equal_mask():
        [1, 1, 0, 0, 1, 1]]
    )[tf.newaxis, ...]
    out, self_attn_weights, cross_attn_weights = layer(
-      query, enc_kv, padding_mask, lookahead_mask, True)
+      query, enc_kv, padding_mask, lookahead_mask, False)
    zero_lookahead_weights = tf.cast(tf.equal(self_attn_weights, 0), tf.int32)
    assert bool(tf.reduce_all(tf.equal(zero_lookahead_weights, lookahead_mask)))
    zero_padding_weights = tf.cast(tf.equal(cross_attn_weights, 0), tf.int32)
@@ -70,7 +70,7 @@ def test_decoder_stack_creates_correct_shape():
    stack = create_stack()
    inputs = tf.random.uniform([2, 4, 16])
    enc_kv = tf.random.uniform([2, 9, 16])
-   out, attn_weights = stack(inputs, enc_kv, None, None, True)
+   out, attn_weights = stack(inputs, enc_kv, None, None, False)
    # attn_weights = { 'decoder_{i}': (self_weights, cross_weights) }
    assert all(tf.shape(out) == tf.shape(inputs))
    for self_weights, cross_weights in attn_weights.values():

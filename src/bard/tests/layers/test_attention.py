@@ -1,6 +1,3 @@
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
-
 import pytest
 import tensorflow as tf
 from tensorflow import keras
@@ -82,7 +79,7 @@ def test_self_attn_with_mask():
        [1, 0, 1, 0],
        [1, 1, 1, 0]]
    )[tf.newaxis, ...]
-   _, weights = attn(inputs, inputs, inputs, mask) 
+   _, weights = attn(inputs, inputs, inputs, mask)
    # weights: (2, 8, 4, 4), mask: (4, 4)
    zero_weights = tf.cast(tf.equal(weights, 0), tf.int32)
    assert bool(tf.reduce_all(tf.equal(zero_weights, mask)))
