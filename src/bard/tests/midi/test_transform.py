@@ -11,7 +11,6 @@ MAX_VELOCITY_VAL = 128
 NUM_VELOCITY_BINS = 32
 
 DATA_DIR = os.path.abspath('../../../../data/maestro-v3.0.0/2004')
-TEST_MIDI_FILE = f'{DATA_DIR}/{os.listdir(DATA_DIR)[0]}'
 
 TICKS_PER_BEAT = 320
 MAX_TIME = 1000
