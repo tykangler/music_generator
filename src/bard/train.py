@@ -17,18 +17,18 @@ def train(model: keras.Model, train_ds, val_ds, train_config):
          log_dir=train_config['log_path'], write_graph=True, histogram_freq=50, # in epochs
          update_freq="epoch", profile_batch=2, embeddings_freq=50), # in epochs
       keras.callbacks.ModelCheckpoint(
-         filepath=f"{train_config['checkpoint_path']}/ep{{epoch:02d}}.hdf5", verbose=0, 
-         save_best_only=False, monitor="val_accuracy", mode="auto", save_freq="epoch") 
+         filepath=f"{train_config['checkpoint_path']}/ep{{epoch:02d}}.hdf5", verbose=0,
+         save_best_only=False, monitor="val_accuracy", mode="auto", save_freq="epoch")
          # might want to change save freq to batches
    ]
-   return model.fit(train_ds, 
-                    callbacks=callbacks, 
-                    validation_data=val_ds, 
+   return model.fit(train_ds,
+                    callbacks=callbacks,
+                    validation_data=val_ds,
                     epochs=train_config['epochs'])
 
 def create_model(model_config, vocab_size):
    """
-   creates the transfomer with given hyperparameters. expects config to have `model` key 
+   creates the transfomer with given hyperparameters. expects config to have `model` key
    with `initial_params` sub-key, each containing parameters for training objects
    """
    model_config = model_config["initial_params"]
@@ -39,8 +39,8 @@ def create_model(model_config, vocab_size):
    loss_func = loss.PaddedSparseCategoricalCrossentropy(**model_config["loss"])
    metrics = metric.PaddedSparseTopKCategoricalAccuracy(**model_config["metric"])
    model.compile(
-      optimizer=optimizer, 
-      loss=loss_func, 
+      optimizer=optimizer,
+      loss=loss_func,
       metrics=metrics)
    return model
 
@@ -53,7 +53,7 @@ def run(args=None):
    midi_path = os.path.join(constants.project_root, train_config['midi_path'])
 
    # load dataset, and create model
-   train_ds, val_ds, _, midi_tokenizer = etl.load(midi_path, 
+   train_ds, val_ds, _, midi_tokenizer = etl.load(midi_path,
       batch_size=train_config["batch_size"],
       train_size=train_config["train_size"],
       val_size=train_config["val_size"],
@@ -61,7 +61,7 @@ def run(args=None):
       inp_len=train_config["inp_len"],
       tar_len=train_config["tar_len"])
    model = create_model(model_config, midi_tokenizer.vocab_size())
-   
+
    # fit model
    history = train(model, train_ds, val_ds, train_config)
 
@@ -75,14 +75,13 @@ def run(args=None):
 
 if __name__ == '__main__':
    run(sys.argv[1:])
-   
-#
+
 # TODOs
-# 
+#
 # * [x] Add l2 MaxNorm regularization to layers
 #     * ~~Use self.losses~~, weights automatically adjusted as updated
 #     * [x] Implement for multihead relative attention
-# * [x] Configs for kernel constraints 
+# * [x] Configs for kernel constraints
 # * [ ] Clean and Checkup
 # * [x] Document all classes and methods with required shapes
 # * [ ] Azure Subscription

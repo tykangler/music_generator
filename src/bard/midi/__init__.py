@@ -1,3 +1,3 @@
-from . import tokenizer, transform
+from . import tokenizer, transform, vocabulary
 
-__all__ = ['transform', 'tokenizer']
+__all__ = ['transform', 'tokenizer', 'vocabulary']

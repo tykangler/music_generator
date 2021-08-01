@@ -6,7 +6,7 @@ import mido
 import os
 import json
 
-from bard.midi import stringify
+from bard.midi import vocabulary
 from bard.midi import tokenizer
 from bard.layers.masking import create_decoder_mask, create_padding_mask
 from bard import constants
@@ -29,19 +29,19 @@ def predict(model, input_seq: list, end_token: int, start_token: int, max_len: i
    output_seq = tf.constant([start_token])[tf.newaxis, :] # (batch=1, q_seqlen=1)
    input_seq = tf.expand_dims(input_seq, axis=0) # (batch=1, seqlen)
    input_padding_mask = create_padding_mask(input_seq)[:, tf.newaxis, :] # (batch=1, q_seqlen=1 (broadcast), seqlen)
-   AttentionWeights = collections.namedtuple('AttentionWeights', 
+   AttentionWeights = collections.namedtuple('AttentionWeights',
       ['enc_weights', 'dec_weights', 'encdec_weights'])
    while tf.size(output_seq) != max_len and output_seq[-1, -1] != end_token:
       decoder_mask = create_decoder_mask(output_seq) # (batch=1, seqlen, seqlen)
       # generated_seq is made up of ignored first n - 1 tokens, with the final nth token being the prediction
       generated_seq, *weights = model(
-         inputs=input_seq, 
+         inputs=input_seq,
          targets=output_seq,
          padding_mask=input_padding_mask,
          lookahead_mask=decoder_mask,
          training=False) # (batch=1, q_seqlen, vocab_size)
       last_notes = generated_seq[:, -1:, :] # (batch=1, 1, vocab_size)
-      generated_labels = tf.argmax(last_notes, axis=-1) 
+      generated_labels = tf.argmax(last_notes, axis=-1)
       # (batch=1, 1), what if gen label = 0, model should be trained to not gen 0
       output_seq = tf.concat([output_seq, generated_labels], axis=-1)
    return output_seq, AttentionWeights(*weights)
@@ -69,11 +69,10 @@ def run(seq, args=None):
 
    # transform input seq
    parsed = parse_midi(seq)
-   vocab_seq = stringify.encode(parsed)
+   vocab_seq = vocabulary.encode(parsed)
    midi_tokenizer = tokenizer.MidiTokenizer.load(
       os.path.join(constants.project_root, model_config['vocab_path']))
    input_seq = midi_tokenizer.encode(vocab_seq)
-
 
    output_seq, attention = predict(
       model=model,
@@ -83,10 +82,10 @@ def run(seq, args=None):
       max_len=inference_config['max_len']
    )
 
-   return midi_tokenizer.decode(output_seq), attention
+   decoded = midi_tokenizer.decode(output_seq)
+   return vocabulary.decode(decoded), attention
 
 if __name__ == '__main__':
    run(sys.argv[1:])
-
 
 # fix filenames, prefix with project root

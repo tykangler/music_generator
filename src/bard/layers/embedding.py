@@ -4,20 +4,21 @@ from tensorflow import keras
 
 from .utils import underlying_value
 
-# consider using this for positional embeddings to interleave tensors by even and odd indices
+# consider using this for positional embeddings to interleave tensors by even and odd indices.
+# not currently used
 # example usage:
 #     complete_positional_embeddings = alternate_by_even_odd(
 #        np.sin(embeddings[:, 0::2]), np.cos(embeddings[:, 1::2]))
 def alternate_by_even_odd(even_index_tensor, odd_index_tensor):
    assert tf.reduce_all(tf.shape(even_index_tensor) == tf.shape(odd_index_tensor))
-   concat = tf.concat([even_index_tensor[..., tf.newaxis], 
+   concat = tf.concat([even_index_tensor[..., tf.newaxis],
                         odd_index_tensor[..., tf.newaxis]], axis=-1)
    # even = [1, 2, 3], odd = [4, 5, 6]
    # even = [[1], [2], [3]], odd = [[4], [5], [6]]
    # concat = [[1, 4],
    #           [2, 5],
    #           [3, 6]]
-   return tf.reshape(concat, shape=[-1, tf.shape(even_index_tensor)[-1] * 2]) 
+   return tf.reshape(concat, shape=[-1, tf.shape(even_index_tensor)[-1] * 2])
 
 OMEGA_SCALE = 10000
 
@@ -41,7 +42,7 @@ class Embedding(keras.layers.Layer):
    Embeds sequence of integer labels into vectors of fixed size. Each element in each batch
    is converted to a vector of size `output_dim`.
    params:
-      vocab_size: size of the vocabulary, all integers should be within the vocabulary 
+      vocab_size: size of the vocabulary, all integers should be within the vocabulary
       output_dim: dimensions of the output vectors
       dropout_rate: dropout rate
       embeddings_constraint: weight constraint for embeddings
@@ -50,9 +51,10 @@ class Embedding(keras.layers.Layer):
       super().__init__(**kwargs)
       self.vocab_size = underlying_value(vocab_size, int)
       self.output_dim = underlying_value(output_dim, int)
+      self.dropout_rate = underlying_value(dropout_rate, float)
       self.embeddings_constraint = keras.constraints.get(embeddings_constraint)
       self.token_embedding = keras.layers.Embedding(
-         input_dim=vocab_size, 
+         input_dim=vocab_size,
          output_dim=output_dim,
          embeddings_constraint=self.embeddings_constraint,
          name="token embedding")
@@ -74,7 +76,7 @@ class Embedding(keras.layers.Layer):
       seqlen = tf.shape(inputs)[-1]
       embed_out = self.token_embedding(inputs)
 
-      # embed_out 3d (batch_size, seqlen, output_dim) 
+      # embed_out 3d (batch_size, seqlen, output_dim)
       embed_out += self.positional_embedding[:seqlen]
 
       # positional_embedding 2d (seqlen, output_dim) compressed to (seqlen, output_dim)

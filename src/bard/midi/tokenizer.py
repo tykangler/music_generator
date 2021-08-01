@@ -1,30 +1,30 @@
 import tensorflow as tf
-from collections import Counter
+from collections import OrderedDict
 
 class MidiTokenizer:
-   def __init__(self, vocabulary, sort=True):
-      if sort:
-         counter = Counter(vocabulary) 
-         self.vocabulary = [token for token, _ in counter.most_common()] 
-      else:
-         self.vocabulary = vocabulary
+   def __init__(self, vocab, default_decoded):
+      """can pass in a list of all possible tokens, or tensors representing
+      sequences of data. expects python array"""
+      ordered_dict = OrderedDict() # to remove dups
+      for val in vocab:
+         ordered_dict[val] = None
+      self.vocab = tf.constant(list(ordered_dict.keys()))
       # '<pad>': 0
       # '<start>': 1
       # '<end>': 2
-      integer_ids = range(3, len(self.vocabulary) + 3)
-      self.id_lookup = self._initialize_lookup(self.vocabulary, integer_ids)
-      self.vocab_lookup = self._initialize_lookup(integer_ids, self.vocabulary)
-
-   def _initialize_lookup(self, keys, values):
-      kv_tensor_init = tf.lookup.KeyValueTensorInitializer(
-         keys, values, key_dtype=tf.string, value_dtype=tf.int64)
-      return tf.lookup.StaticVocabularyTable(kv_tensor_init, num_oov_buckets=1)
+      integer_ids = tf.constant(range(3, len(self.vocab) + 3), dtype=tf.int64)
+      vocab_id_kv_init = tf.lookup.KeyValueTensorInitializer(self.vocab, integer_ids)
+      self.id_lookup = tf.lookup.StaticVocabularyTable(vocab_id_kv_init, num_oov_buckets=1)
+      id_vocab_kv_init = tf.lookup.KeyValueTensorInitializer(integer_ids, self.vocab)
+      self.vocab_lookup = tf.lookup.StaticHashTable(id_vocab_kv_init, default_value=default_decoded)
 
    def encode(self, vocab):
+      "expectes tensor"
       encoded = self.id_lookup.lookup(vocab)
       return encoded
 
    def decode(self, ids):
+      "expects tensor"
       return self.vocab_lookup.lookup(ids)
 
    def vocab_size(self):

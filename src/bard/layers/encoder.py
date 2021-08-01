@@ -7,14 +7,14 @@ from .utils import underlying_value
 
 class Encoder(keras.layers.Layer):
    """
-   A single encoder layer to be used in the encoder stack. This takes in an embedded input sequence, calculates self 
+   A single encoder layer to be used in the encoder stack. This takes in an embedded input sequence, calculates self
    attention weights, and outputs self attention scores for the embedded input sequence.
 
    params:
       heads: the number of heads to split the input sequence into in the relative attention step.
       ffnn_dim: the number of hidden layer units in the position wise feed forward step.
       max_relative_pos: the max distance considered for relative attention
-      dropout_rate: rate of dropout 
+      dropout_rate: rate of dropout
       kernel_constraint: weight constraints for the attention and ffnn step
    """
    def __init__(self, heads, ffnn_dim, max_relative_pos, dropout_rate=0.2, kernel_constraint=None, **kwargs):
@@ -23,10 +23,11 @@ class Encoder(keras.layers.Layer):
       self.ffnn_dim = underlying_value(ffnn_dim, int)
       self.dropout_rate = underlying_value(dropout_rate, float)
       self.kernel_constraint = keras.constraints.get(kernel_constraint)
+      self.max_relative_pos = max_relative_pos
       self.attn = dict(
          layer=MultiHeadRelativeAttention(
-               heads=heads, 
-               max_relative_pos=max_relative_pos, 
+               heads=heads,
+               max_relative_pos=max_relative_pos,
                name="Encoder Relative Attention"),
          dropout=keras.layers.Dropout(rate=dropout_rate),
          norm=keras.layers.LayerNormalization())
@@ -41,7 +42,7 @@ class Encoder(keras.layers.Layer):
          dropout=keras.layers.Dropout(rate=self.dropout_rate),
          norm=keras.layers.LayerNormalization())
       super().build(input_shape)
-   
+
    def call(self, inputs, padding_mask, training):
       """
       computes self attention, passes result through a ffnn with one hidden layer, and employs residual
@@ -67,18 +68,13 @@ class Encoder(keras.layers.Layer):
    def get_config(self):
       config = super().get_config()
       config.update(dict(
-         embed_dim=self.embed_dim,
          heads=self.heads,
          ffnn_dim=self.ffnn_dim,
+         max_relative_pos=self.max_relative_pos,
          dropout_rate=self.dropout_rate,
-         kernel_constraint=self.kernel_constraint.get_config()
+         kernel_constraint=keras.constraints.serialize(self.kernel_constraint)
       ))
       return config
-   
-   @classmethod
-   def from_config(cls, **kwargs):
-      return NotImplemented
-
 
 class EncoderStack(keras.layers.Layer):
    """
@@ -94,13 +90,13 @@ class EncoderStack(keras.layers.Layer):
       self.ffnn_dim = underlying_value(ffnn_dim, int)
       self.max_relative_pos = underlying_value(max_relative_pos, int)
       self.dropout_rate = underlying_value(dropout_rate, float)
-      self.kernel_constraint = kernel_constraint
-      self.encoders = [Encoder(self.heads, self.ffnn_dim, self.max_relative_pos, self.dropout_rate, self.kernel_constraint) 
+      self.kernel_constraint = keras.constraints.get(kernel_constraint)
+      self.encoders = [Encoder(self.heads, self.ffnn_dim, self.max_relative_pos, self.dropout_rate, self.kernel_constraint)
                         for i in range(self.units)]
-   
+
    def call(self, inputs, padding_mask, training):
       """
-      runs forward pass through each encoder in this stack sequentially. Each encoder's attention weights are 
+      runs forward pass through each encoder in this stack sequentially. Each encoder's attention weights are
       returned as a dictionary, mapping layer to its respective weights.
       params:
          inputs: tensor of shape (batch, q_seqlen, dims)
@@ -108,20 +104,21 @@ class EncoderStack(keras.layers.Layer):
          training: boolean representing whether this is a train step
       returns:
          tensor of shape (batch, q_seqlen, dims)
-         dictionary of attention weights, with "encoder_{i}" as keys            
+         dictionary of attention weights, with "encoder_{i}" as keys
       """
       all_attn_weights = dict()
       for i, layer in enumerate(self.encoders):
          inputs, attn_weights = layer(inputs, padding_mask, training)
          all_attn_weights[f'encoder_{i}'] = attn_weights
       return inputs, all_attn_weights
-   
+
    def get_config(self):
       config = super().get_config()
       config.update(dict(
          units=self.units,
          heads=self.heads,
          ffnn_dim=self.ffnn_dim,
+         max_relative_pos=self.max_relative_pos,
          dropout_rate=self.dropout_rate,
          kernel_constraint=keras.constraints.serialize(self.kernel_constraint)
       ))
