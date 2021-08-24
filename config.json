@@ -3,8 +3,8 @@
       "log_path": "./logs/train",
       "midi_path": "./data/maestro-v3.0.0",
       "checkpoint_path": "./models/ckpts",
-      "val_size": 0.1,
       "test_size": 0.1,
+      "train_size": 0.8,
       "batch_size": 32,
       "epochs": 100,
       "velocity_bins": 32,
@@ -33,7 +33,7 @@
                   "axis": 0
                }
             }
-         }, 
+         },
          "learning_schedule": {
             "dim": 512,
             "warmup_steps": 4000
