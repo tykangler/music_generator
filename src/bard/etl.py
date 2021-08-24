@@ -100,12 +100,10 @@ def load(midi_path: str, config: dict):
    filenames = tf.random.shuffle(glob.glob(f'{midi_path}/**/*.midi', recursive=True))
 
    # get train, validation, and test sizes
-   train_split, val_split, _ = _get_dataset_splits(
-      train_size=config.get('train_size', None),
-      val_size=config.get('val_size', None),
-      test_size=config.get('test_size', None))
+   train_split, test_split = config.get('train_size', None), config.get('test_size', None)
    train_split = int(train_split * len(filenames))
-   val_split = int(val_split * len(filenames))
+   test_split = int(test_split * len(filenames))
+   val_split = len(filenames) - train_split + test_split
 
    # split filenames to train, test, split
    midi_ds, midi_tokenizer = _create_dataset(
@@ -122,4 +120,5 @@ def load(midi_path: str, config: dict):
 
    return (_optimize_dataset(train_ds.padded_batch(batch_size)),
            _optimize_dataset(val_ds.padded_batch(batch_size)),
-           _optimize_dataset(test_ds.padded_batch(batch_size)), midi_tokenizer)
+           _optimize_dataset(test_ds.padded_batch(batch_size)),
+           midi_tokenizer)
